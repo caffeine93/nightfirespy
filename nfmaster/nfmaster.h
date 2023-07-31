@@ -9,18 +9,20 @@
 #define CLIENTS_COMM_POOL_SIZE 8
 
 enum gameserver_stage {
-     HEARTBEAT_REQ, /* server -> master */
-     VALIDATE_REQ, /* master -> server */
-     VALIDATE_RSP, /* server -> master */
-     STATUS_REQ, /* master -> server */
-     STATUS_RSP /* server -> master */
+     GAMESERVER_STAGE_HEARTBEAT_REQ, /* server -> master */
+     GAMESERVER_STAGE_VALIDATE_REQ, /* master -> server */
+     GAMESERVER_STAGE_VALIDATE_RSP, /* server -> master */
+     GAMESERVER_STAGE_STATUS_REQ, /* master -> server */
+     GAMESERVER_STAGE_STATUS_RSP, /* server -> master */
+     GAMESERVER_STAGE_INVALID
 };
 
 enum client_stage {
-     SECURE_REQ, /* master -> client */
-     SECURE_RSP, /* client -> master */
-     SERVER_LIST_REQ, /* client -> master */
-     SERVER_LIST_RSP /* master -> client */
+     CLIENT_STAGE_SECURE_REQ, /* master -> client */
+     CLIENT_STAGE_SECURE_RSP, /* client -> master */
+     CLIENT_STAGE_SERVER_LIST_REQ, /* client -> master */
+     CLIENT_STAGE_SERVER_LIST_RSP, /* master -> client */
+     CLIENT_STAGE_INVALID
 };
 
 struct ClientNF {

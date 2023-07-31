@@ -32,7 +32,7 @@
  #define SERVERLIST_CLEANUP_PERIOD_SEC 60 /* 60sec */
  #define CLIENT_TCP_CONN_TIMEOUT_MS 10000 /* 10sec */
 
-  #define LOGGING_TYPE_PRINTF
+ #define LOGGING_TYPE_PRINTF
 
  #ifdef LOGGING_TYPE_PRINTF
  #define INFO(...) printf(__VA_ARGS__)
@@ -42,42 +42,67 @@
  #define ERR(...) syslog(LOG_ERR, __VA_ARGS__)
  #endif // LOGGING_TYPE_PRINTF
 
+ #define MAX_PKT_SZ      1024
+ #define MAX_PKT_KEY_LEN 32
+ #define MAX_PKT_VAL_LEN 64
+ #define PKT_INVALID_KEY -1
+ #define SECURE_KEY_SZ    6
+
+ struct pkt_key {
+     uint8_t key;
+     char str[MAX_PKT_KEY_LEN];
+ };
+
  /* server -> master */
  enum heartbeat_pkt {
-     HEARTBEAT_PKT_PORT,
-     HEARTBEAT_PKT_GAMENAME,
-     HEARTBEAT_PKT_STATECHANGED,
-     HEARTBEAT_PKT_MAX
+     GAMESERVER_HEARTBEAT_PKT_PORT,
+     GAMESERVER_HEARTBEAT_PKT_GAMENAME,
+     GAMESERVER_HEARTBEAT_PKT_STATECHANGED,
+     GAMESERVER_HEARTBEAT_PKT_MAX
  };
+
+ static struct pkt_key pkt_gameserver_heartbeat_keys[] = {
+     {GAMESERVER_HEARTBEAT_PKT_PORT, "heartbeat"},
+     {GAMESERVER_HEARTBEAT_PKT_GAMENAME, "gamename"},
+     {GAMESERVER_HEARTBEAT_PKT_STATECHANGED, "statechanged"},
+     {PKT_INVALID_KEY, ""}
+ };
+
  /* server -> master */
  enum status_rsp_pkt {
-     STATUS_RSP_PKT_GAMENAME,
-     STATUS_RSP_PKT_GAMEVER,
-     STATUS_RSP_PKT_DEDICATED,
-     STATUS_RSP_PKT_GAMEMODE,
-     STATUS_RSP_PKT_GAMETYPE,
-     STATUS_RSP_PKT_HOSTPORT,
-     STATUS_RSP_PKT_MAPNAME,
-     STATUS_RSP_PKT_MAXPLAYERS,
-     STATUS_RSP_PKT_HOSTNAME,
-     STATUS_RSP_PKT_NUMPLAYERS,
-     STATUS_RSP_PKT_PASSWORD,
-     STATUS_RSP_PKT_TIMELIMIT,
-     STATUS_RSP_PKT_FRAGLIMIT,
-     STATUS_RSP_PKT_CTFLIMIT,
-     STATUS_RSP_PKT_TEAMPLAY,
-     STATUS_RSP_PKT_FRIENDLYFIRE,
-     STATUS_RSP_PKT_WEAPONSTAY,
-     STATUS_RSP_PKT_BOTSMODE,
-     STATUS_RSP_PKT_FINAL,
-     STATUS_RSP_PKT_QUERYID,
-     STATUS_RSP_PKT_MAX
+     GAMESERVER_STATUS_RSP_PKT_GAMENAME,
+     GAMESERVER_STATUS_RSP_PKT_GAMEVER,
+     GAMESERVER_STATUS_RSP_PKT_DEDICATED,
+     GAMESERVER_STATUS_RSP_PKT_GAMEMODE,
+     GAMESERVER_STATUS_RSP_PKT_GAMETYPE,
+     GAMESERVER_STATUS_RSP_PKT_HOSTPORT,
+     GAMESERVER_STATUS_RSP_PKT_MAPNAME,
+     GAMESERVER_STATUS_RSP_PKT_MAXPLAYERS,
+     GAMESERVER_STATUS_RSP_PKT_HOSTNAME,
+     GAMESERVER_STATUS_RSP_PKT_NUMPLAYERS,
+     GAMESERVER_STATUS_RSP_PKT_PASSWORD,
+     GAMESERVER_STATUS_RSP_PKT_TIMELIMIT,
+     GAMESERVER_STATUS_RSP_PKT_FRAGLIMIT,
+     GAMESERVER_STATUS_RSP_PKT_CTFLIMIT,
+     GAMESERVER_STATUS_RSP_PKT_TEAMPLAY,
+     GAMESERVER_STATUS_RSP_PKT_FRIENDLYFIRE,
+     GAMESERVER_STATUS_RSP_PKT_WEAPONSTAY,
+     GAMESERVER_STATUS_RSP_PKT_BOTSMODE,
+     GAMESERVER_STATUS_RSP_PKT_FINAL,
+     GAMESERVER_STATUS_RSP_PKT_QUERYID,
+     GAMESERVER_STATUS_RSP_PKT_MAX
  };
  /* master -> client */
  enum client_secure {
      CLIENT_SECURE_PKT_BASIC,
      CLIENT_SECURE_PKT_SECURE,
      CLIENT_SECURE_PKT_MAX
+ };
+
+ static struct pkt_key pkt_client_secure_keys[] = {
+     {CLIENT_SECURE_PKT_BASIC, "basic"},
+     {CLIENT_SECURE_PKT_SECURE, "secure"},
+     {PKT_INVALID_KEY, ""}
  };
 
  /* client -> master */
@@ -92,6 +117,17 @@
      CLIENT_VALIDATE_PKT_MAX
  };
 
+ static struct pkt_key pkt_client_validate_keys[] = {
+     {CLIENT_VALIDATE_PKT_GAMENAME, "gamename"},
+     {CLIENT_VALIDATE_PKT_GAMEVER, "gamever"},
+     {CLIENT_VALIDATE_PKT_LOCATION, "location"},
+     {CLIENT_VALIDATE_PKT_VALIDATE, "validate"},
+     {CLIENT_VALIDATE_PKT_ENCTYPE, "enctype"},
+     {CLIENT_VALIDATE_PKT_FINAL, "final"},
+     {CLIENT_VALIDATE_PKT_QUERYID, "queryid"},
+     {PKT_INVALID_KEY, ""}
+ };
+
  /* client -> master */
  enum client_list {
      CLIENT_LIST_PKT_LIST,
@@ -103,19 +139,19 @@
  static inline void dbg_print_gameserver_stage(enum gameserver_stage stage)
  {
      switch (stage) {
-     case HEARTBEAT_REQ:
+     case GAMESERVER_STAGE_HEARTBEAT_REQ:
         INFO("HEARTBEAT_REQ");
         break;
-     case VALIDATE_REQ:
+     case GAMESERVER_STAGE_VALIDATE_REQ:
         INFO("VALIDATE_REQ");
         break;
-     case VALIDATE_RSP:
+     case GAMESERVER_STAGE_VALIDATE_RSP:
         INFO("VALIDATE_RSP");
         break;
-     case STATUS_REQ:
+     case GAMESERVER_STAGE_STATUS_REQ:
         INFO("STATUS_REQ");
         break;
-     case STATUS_RSP:
+     case GAMESERVER_STAGE_STATUS_RSP:
         INFO("STATUS_RSP");
         break;
      default:
@@ -127,22 +163,90 @@
  static inline void dbg_print_client_stage(enum client_stage stage)
  {
      switch (stage) {
-     case SECURE_REQ:
+     case CLIENT_STAGE_SECURE_REQ:
         INFO("SECURE_REQ");
         break;
-     case SECURE_RSP:
+     case CLIENT_STAGE_SECURE_RSP:
         INFO("SECURE_RSP");
         break;
-     case SERVER_LIST_REQ:
+     case CLIENT_STAGE_SERVER_LIST_REQ:
         INFO("SERVER_LIST_REQ");
         break;
-     case SERVER_LIST_RSP:
+     case CLIENT_STAGE_SERVER_LIST_RSP:
         INFO("SERVER_LIST_RSP");
         break;
      default:
         INFO("UNKNOWN");
         break;
      }
+ }
+
+ static inline uint8_t* pkt_put_key_value(struct pkt_key *pkt_key, uint8_t key, char *val, uint8_t *pkt)
+ {
+     uint8_t *curr_pkt = pkt;
+
+     while (pkt_key->key != PKT_INVALID_KEY) {
+        if (pkt_key->key == key) {
+            *curr_pkt = '\\';
+            (*curr_pkt)++;
+            strncpy(curr_pkt, pkt_key->str, MAX_PKT_KEY_LEN);
+            /* key/value strings are NOT null-terminted in packages */
+            curr_pkt += strlen(pkt_key->str);
+            *curr_pkt = '\\';
+            (*curr_pkt)++;
+            strncpy(curr_pkt, val, MAX_PKT_VAL_LEN);
+            curr_pkt += strlen(val);
+            return curr_pkt;
+        }
+        pkt_key++;
+     }
+
+     return NULL;
+ }
+
+ static char *pkt_get_value(struct pkt_key *pkt_key, uint8_t key, uint8_t *pkt)
+ {
+     uint8_t *curr_pkt = pkt;
+     char *key_str = NULL;
+
+     while (pkt_key->key != PKT_INVALID_KEY) {
+        if (pkt_key->key == key) {
+            key_str = pkt_key->str;
+            break;
+        }
+     }
+
+     if (!key_str)
+        return NULL;
+
+     while (*pkt != '\0') {
+        /* extract key */
+        if (*pkt == '\\') {
+            pkt++;
+            /* invalid packet, key can't be empty */
+            if ((*pkt == '\0') || (*pkt == '\\'))
+                return 1;
+
+            /* found the desired key */
+            if (!strncmp(pkt, key_str, strlen(key_str))) {
+                pkt += strlen(key_str);
+                /* missing delimiter after key */
+                if ((*pkt == '\0') || (*pkt != '\\'))
+                    return 1;
+
+                pkt++;
+
+                /* find the end of the value */
+                curr_pkt = pkt;
+                while ((curr_pkt != '\0') && (curr_pkt != '\\'))
+                    curr_pkt++;
+
+                return strndup(pkt, curr_pkt - pkt);
+            }
+        }
+     }
+
+     return NULL;
  }
 
  static void *serverlist_state_update(void *arg)
@@ -174,58 +278,57 @@
  static int32_t process_heartbeat(uint8_t *packet, ssize_t size)
  {
      int32_t ret = 0;
-     char *tok = strtok((char *)packet, "\\");
+     char *str_val = NULL;
      uint32_t statechanged = 0;
      struct GameServerNF *gameserver = NULL;
-     uint8_t *heartbeat_pkt[HEARTBEAT_PKT_MAX];
-     if (!tok)
-        return -EINVAL;
 
-    gameserver = malloc(sizeof(*gameserver));
-    if (!gameserver)
-        return -ENOMEM;
+     gameserver = malloc(sizeof(*gameserver));
+     if (!gameserver)
+         return -ENOMEM;
 
-     do {
-        if (!strncmp(tok, "heartbeat", strlen(tok))) {
-            tok = strtok(NULL, "\\");
-            if (!tok) {
-               INFO("Heartbeat: bad packet -> missing port param");
-               return -EINVAL;
-            }
-            heartbeat_pkt[HEARTBEAT_PKT_PORT] = tok;
-        }
-        else if (!strncmp(tok, "gamename", strlen(tok))) {
-            tok = strtok(NULL, "\\");
-            if (!tok) {
-                INFO("Heartbeat: bad packet -> empty gamename param\n");
-                return -EINVAL;
-            }
-            heartbeat_pkt[HEARTBEAT_PKT_GAMENAME] = tok;
-        }
-        else if (!strncmp(tok, "statechanged", strlen(tok))) {
-            tok = strtok(tok, "\\");
-            if (!tok) {
-                INFO("Heartbeat: empty 'statechanged', accepting anyway...\n");
-                gameserver->statechanged = 0;
-            }
-            else {
-                ret = sscanf(tok, "%u", &statechanged);
-                if (ret != 1) {
-                    INFO("Heartbeat: invalid 'statechanged't, accepting anyway...\n");
-                    gameserver->statechanged = 0;
-                }
-                else
-                    gameserver->statechanged = statechanged;
-            }
-        }
-        else {
-            return -EINVAL;
-        }
+     str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_PORT, packet);
+     if (!str_val) {
+         INFO("Heartbeat: bad packet -> missing port param");
+         ret = -EINVAL;
+         goto out;
+     }
+     free(str_val);
 
-        tok = strtok(NULL, "\\");
-     } while (tok);
+     str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_GAMENAME, packet);
+     if (!str_val) {
+         INFO("Heartbeat: bad packet -> empty gamename param\n");
+         ret = -EINVAL;
+         goto out;
+     }
+     free(str_val);
 
-     gameserver->conn_stage = HEARTBEAT_REQ;
+     str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_STATECHANGED, packet);
+     if (!str_val) {
+         INFO("Heartbeat: empty 'statechanged', accepting anyway...\n");
+         gameserver->statechanged = 0;
+     }
+     else {
+         ret = sscanf(str_val, "%u", &statechanged);
+         if (ret < 0) {
+             INFO("Heartbeat: invalid 'statechanged't, accepting anyway...\n");
+             gameserver->statechanged = 0;
+          }
+         else
+             gameserver->statechanged = statechanged;
+     }
+
+     gameserver->conn_stage = GAMESERVER_STAGE_HEARTBEAT_REQ;
+
+out:
+     free(str_val);
+     return ret;
+ }
+
+ static int32_t process_status(uint8_t *packet, ssize_t size)
+ {
+     (void)packet;
+     (void)size;
+
      return 0;
  }
 
@@ -341,6 +444,87 @@
     return 0;
  }
 
+  static enum client_stage client_send_secure_req(struct ClientNF *client)
+ {
+     uint8_t pkt[MAX_PKT_SZ] = {'\0'};
+     char secure_key[SECURE_KEY_SZ];
+     time_t time_seed;
+     uint8_t *pkt_bldr = NULL;
+
+     srand((unsigned) time(&time_seed));
+
+     for (uint8_t i = 0; i < SECURE_KEY_SZ; i++)
+            secure_key[i] = rand() % 0xff;
+
+     pkt_bldr = pkt_put_key_value(pkt_client_secure_keys, CLIENT_SECURE_PKT_BASIC, "", pkt);
+     if (!pkt_bldr)
+        return CLIENT_STAGE_INVALID;
+
+     pkt_bldr = pkt_put_key_value(pkt_client_secure_keys, CLIENT_SECURE_PKT_SECURE, secure_key, pkt_bldr);
+     if (!pkt_bldr)
+        return CLIENT_STAGE_INVALID;
+
+     send(client->sock, pkt, pkt_bldr - pkt + 1, 0);
+
+     return CLIENT_STAGE_SECURE_RSP;
+ }
+
+ static enum client_stage client_parse_secure_rsp(struct ClientNF *client)
+ {
+     uint8_t pkt[MAX_PKT_SZ] = {'\0'};
+     char *str_val = NULL;
+     enum client_stage ret = CLIENT_STAGE_SERVER_LIST_REQ;
+
+     recv(client->sock, pkt, MAX_PKT_SZ, 0);
+
+     str_val = pkt_get_value(pkt_client_validate_keys, CLIENT_VALIDATE_PKT_GAMENAME, pkt);
+     if (!str_val)
+        return CLIENT_STAGE_INVALID;
+
+     if (strncmp(str_val, "jbnightfire", strlen(str_val)))
+         ret = CLIENT_STAGE_INVALID;
+         free(str_val);
+
+     return ret;
+ }
+
+ static enum client_stage client_parse_server_list_req(struct ClientNF *client)
+ {
+     return CLIENT_STAGE_SERVER_LIST_RSP;
+ }
+
+ static enum client_stage client_send_server_list_rsp(struct ClientNF *client)
+ {
+     return CLIENT_STAGE_INVALID;
+ }
+
+ static enum client_stage process_client(struct ClientNF *client)
+ {
+     enum client_stage ret;
+
+     if (!client)
+        return CLIENT_STAGE_INVALID;
+
+     switch(client->conn_stage) {
+        case CLIENT_STAGE_SECURE_REQ:
+            ret = client_send_secure_req(client);
+            break;
+        case CLIENT_STAGE_SECURE_RSP:
+            ret = client_parse_secure_rsp(client);
+            break;
+        case CLIENT_STAGE_SERVER_LIST_REQ:
+            ret = client_parse_server_list_req(client);
+            break;
+        case CLIENT_STAGE_SERVER_LIST_RSP:
+            ret = client_send_server_list_rsp(client);
+            break;
+        default:
+            return CLIENT_STAGE_INVALID;
+     }
+
+     return ret;
+ }
+
  void *client_handler(void *arg)
  {
      struct MasterServerNF *master = NULL;
@@ -360,7 +544,10 @@
          client = STAILQ_FIRST(&master->clients);
          STAILQ_REMOVE_HEAD(&master->clients, entry);
          pthread_mutex_unlock(&master->lock_clients);
+
          /* validate client and go through the list-fetch procedure */
+         client->conn_stage = CLIENT_STAGE_SECURE_REQ;
+         while((client->conn_stage = process_client(client)) != CLIENT_STAGE_INVALID);
 
          close(client->sock);
          free(client);
