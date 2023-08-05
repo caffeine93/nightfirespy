@@ -8,6 +8,8 @@
 
 #define CLIENTS_COMM_POOL_SIZE 8
 
+#define SECURE_KEY_CHALLENGE_SZ 6
+
 enum gameserver_stage {
      GAMESERVER_STAGE_HEARTBEAT_REQ, /* server -> master */
      GAMESERVER_STAGE_VALIDATE_REQ, /* master -> server */
@@ -29,6 +31,7 @@ struct ClientNF {
     uint16_t port;
     in_addr_t ip;
     int sock;
+    char secure_key_challenge[SECURE_KEY_CHALLENGE_SZ + 1];
     enum client_stage conn_stage;
     STAILQ_ENTRY(ClientNF) entry;
 };
