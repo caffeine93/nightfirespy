@@ -54,6 +54,7 @@ struct MasterServerNF {
     pthread_t serverlist_state_update;
     pthread_t gameservers_comm;
     pthread_t clients_comm_pool[CLIENTS_COMM_POOL_SIZE];
+    uint8_t cancel_threads;
     int clients_sock;
     int gameservers_sock;
 };

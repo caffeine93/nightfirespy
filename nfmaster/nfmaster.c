@@ -31,7 +31,7 @@
  #define MAX_UDP_BUFF_SIZE 2048
  #define MAX_CLIENT_BUFF_SIZE 1024
 
- #define SERVERLIST_CLEANUP_PERIOD_SEC 60 /* 60sec */
+ #define SERVERLIST_CLEANUP_PERIOD_SEC 5 /* 5sec */
  #define CLIENT_TCP_CONN_TIMEOUT_MS 10000 /* 10sec */
 
  #define LOGGING_TYPE_PRINTF
@@ -307,15 +307,15 @@
 
     clock_gettime(CLOCK_REALTIME, &now_time);
 
-    while (1) {
-        INFO("Serverlist cleanup: started");
+    while (!master->cancel_threads) {
+        INFO("Serverlist cleanup: started\n");
         STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
             if (now_time.tv_sec - gameserver->time_last_comm.tv_sec > GAMESERVER_HEARTBEAT_INTERVAL_MAX) {
                     STAILQ_REMOVE(&master->gameservers, gameserver, GameServerNF, entry);
                     free(gameserver);
             }
         }
-        INFO("Serverlist cleanup: completed");
+        INFO("Serverlist cleanup: completed\n");
         nanosleep(&poll_period, NULL);
     }
 
@@ -352,7 +352,7 @@
         /* if server reports a different query port than from what it has sent the
          * heartbeat from, it's probably spoofing, thus reject the heartbeat */
         if (gameserver->port != ntohs(addr->sin_port)) {
-            INFO("Heartbeat: bad packet -> stated query port doesn't match packet's originating port");
+            INFO("Heartbeat: bad packet -> stated query port doesn't match packet's originating port\n");
             ret = -EINVAL;
             goto out;
         }
@@ -426,7 +426,7 @@ out:
      else if (!strncmp(packet, "\\gamename\\", size - 1))
         return process_status(master, addr, packet, size);
      else {
-        INFO("Received invalid packet type on UDP sock");
+        INFO("Received invalid packet type on UDP sock\n");
         return -EINVAL;
      }
 
@@ -445,13 +445,27 @@ out:
 
      master = (struct MasterServerNF *)arg;
 
-     while (1) {
+     while (!master->cancel_threads) {
         ret = recvfrom(master->gameservers_sock, buff, MAX_UDP_BUFF_SIZE, 0,
                   (struct sockaddr *)&gameserver_addr, &gameserver_addr_len);
         if (ret > 0) {
             process_gameserver_packet(master, &gameserver_addr, buff, ret);
         }
      }
+ }
+
+ static inline void get_clienthandler_addr(struct sockaddr_in *addr)
+ {
+    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = htonl(INADDR_ANY);
+    addr->sin_port = htons(MASTERSPY_TCP_PORT);
+ }
+
+ static inline void get_gameserver_addr(struct sockaddr_in *addr)
+ {
+    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = htonl(INADDR_ANY);
+    addr->sin_port = htons(MASTERSPY_UDP_PORT);
  }
 
  int32_t MasterSever_init(struct MasterServerNF **master)
@@ -480,7 +494,7 @@ out:
 
     ret = pthread_cond_init(&(*master)->cond_clients_comm, NULL);
     if (ret) {
-        ERR("Failed to init cond for clients comm: %d", ret);
+        ERR("Failed to init cond for clients comm: %d\n", ret);
         return ret;
     }
 
@@ -489,13 +503,11 @@ out:
 
     (*master)->clients_sock = socket(AF_INET, SOCK_STREAM, 0);
     if ((*master)->clients_sock == -1) {
-        ERR("Failed to open TCP sock: %d", -errno);
+        ERR("Failed to open TCP sock: %d\n", -errno);
         return -EFAULT;
     }
 
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(MASTERSPY_TCP_PORT);
+    get_clienthandler_addr(&addr);
 
     ret = bind((*master)->clients_sock, (struct sockaddr *)&addr, sizeof(addr));
     if (ret == -1) {
@@ -515,7 +527,7 @@ out:
         return -EFAULT;
     }
 
-    addr.sin_port = htons(MASTERSPY_UDP_PORT);
+    get_gameserver_addr(&addr);
 
     ret = bind((*master)->gameservers_sock, (struct sockaddr *)&addr, sizeof(addr));
     if (ret == -1) {
@@ -715,8 +727,13 @@ out:
 
      while (1) {
          pthread_mutex_lock(&master->lock_clients);
-         while (STAILQ_EMPTY(&master->clients))
+         while (STAILQ_EMPTY(&master->clients) && !master->cancel_threads)
             pthread_cond_wait(&master->cond_clients_comm, &master->lock_clients);
+
+         if (master->cancel_threads) {
+            pthread_mutex_unlock(&master->lock_clients);
+            goto out;
+         }
 
          client = STAILQ_FIRST(&master->clients);
          STAILQ_REMOVE_HEAD(&master->clients, entry);
@@ -729,6 +746,7 @@ out:
          close(client->sock);
          free(client);
      }
+out:
      return NULL;
  }
 
@@ -743,25 +761,31 @@ out:
     if (!master)
         return -EINVAL;
 
+    master->cancel_threads = 0;
+
     ret = pthread_create(&master->serverlist_state_update, NULL, serverlist_state_update, master);
     if (ret)
         return -EFAULT;
+
+    pthread_setname_np(master->serverlist_state_update, "nightfirespy_srvlst");
 
     ret = pthread_create(&master->gameservers_comm, NULL, gameservers_handler, master);
     if (ret)
         return -EFAULT;
 
+    pthread_setname_np(master->serverlist_state_update, "nightfirespy_gamesrv");
+
     for (uint16_t i = 0; i < CLIENTS_COMM_POOL_SIZE; i++) {
         ret = pthread_create(&master->clients_comm_pool[i], NULL, client_handler, master);
         if (ret) {
-            ERR("Failed to start thread %u for clients comm handling: %d", i, ret);
+            ERR("Failed to start thread %u for clients comm handling: %d\n", i, ret);
             /* TODO: what? */
         }
     }
     while (1) {
             ret = accept(master->clients_sock, (struct sockaddr *)&client_addr, &client_addr_len);
             if (ret == -1) {
-                INFO("Client: error processing req -> failed to open sock: %d", -errno);
+                INFO("Client: error processing req -> failed to open sock: %d\n", -errno);
                 continue;
             }
             gameclient = malloc(sizeof(*gameclient));
@@ -774,7 +798,7 @@ out:
             ret = setsockopt(gameclient->sock, SOL_TCP, TCP_USER_TIMEOUT,
                              (uint8_t *)&client_timeout, sizeof(client_timeout));
             if (ret == -1)
-                INFO("Failed to set client TCP sock timeout: %d", -errno); /* TODO: ignore it? */
+                INFO("Failed to set client TCP sock timeout: %d\n", -errno); /* TODO: ignore it? */
 
             /* insert into the client comm queue */
             pthread_mutex_lock(&master->lock_clients);
@@ -786,6 +810,18 @@ out:
      return 0;
  }
 
+ static inline void unblock_gameserver_handler(void)
+ {
+     struct sockaddr_in gameserver_addr;
+     int dummy_sock = -1;
+
+     get_gameserver_addr(&gameserver_addr);
+     dummy_sock = socket(AF_INET, SOCK_DGRAM, 0);
+     if (dummy_sock > 0) {
+            sendto(dummy_sock, "cancel", strlen("cancel") + 1, 0, &gameserver_addr, sizeof(gameserver_addr));
+            close(dummy_sock);
+     }
+ }
  void MasterServer_free(struct MasterServerNF *master)
  {
      struct ClientNF *client = NULL;
@@ -793,15 +829,17 @@ out:
      if (!master)
         return;
 
-    pthread_cancel(master->serverlist_state_update);
+    master->cancel_threads = 1;
+
     pthread_join(master->serverlist_state_update, NULL);
-    pthread_cancel(master->gameservers_comm);
+    /* gameservers_comm thread is blocked in recvfrom,
+     * send dummy data to unblock and exit grecefully */
+    unblock_gameserver_handler();
     pthread_join(master->gameservers_comm, NULL);
 
-    for (uint16_t i = 0; i < CLIENTS_COMM_POOL_SIZE; i++) {
-        pthread_cancel(master->clients_comm_pool[i]);
+    pthread_cond_broadcast(&master->cond_clients_comm);
+    for (uint16_t i = 0; i < CLIENTS_COMM_POOL_SIZE; i++)
         pthread_join(master->clients_comm_pool[i], NULL);
-    }
 
     if (master->clients_sock > 0)
         close(master->clients_sock);
