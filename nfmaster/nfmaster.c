@@ -476,6 +476,9 @@ out:
      if (!master)
         return -EINVAL;
 
+     if (*master)
+        return -EALREADY;
+
      *master = malloc(sizeof(**master));
      if (!*master)
         return -ENOMEM;
@@ -767,13 +770,9 @@ out:
     if (ret)
         return -EFAULT;
 
-    pthread_setname_np(master->serverlist_state_update, "nightfirespy_srvlst");
-
     ret = pthread_create(&master->gameservers_comm, NULL, gameservers_handler, master);
     if (ret)
         return -EFAULT;
-
-    pthread_setname_np(master->serverlist_state_update, "nightfirespy_gamesrv");
 
     for (uint16_t i = 0; i < CLIENTS_COMM_POOL_SIZE; i++) {
         ret = pthread_create(&master->clients_comm_pool[i], NULL, client_handler, master);
@@ -825,6 +824,7 @@ out:
  void MasterServer_free(struct MasterServerNF *master)
  {
      struct ClientNF *client = NULL;
+     struct GameServerNF *gameserver = NULL;
 
      if (!master)
         return;
@@ -848,8 +848,16 @@ out:
         close(master->gameservers_comm);
 
     STAILQ_FOREACH(client, &master->clients, entry) {
+        STAILQ_REMOVE(&master->clients, client, ClientNF, entry);
         if (client->sock > 0)
             close(client->sock);
+
+        free(client);
+    }
+
+    STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
+        STAILQ_REMOVE(&master->gameservers, gameserver, GameServerNF, entry);
+        free(gameserver);
     }
 
     pthread_cond_destroy(&master->cond_clients_comm);
