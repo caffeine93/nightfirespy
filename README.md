@@ -1,7 +1,6 @@
 # NightfireSpy: open-source implementation of GameSpy's 'James Bond: Nightfire' master server
 
-## *Note: this project is a work in progress, as reverse engineering is moving on,*
-## *the codebase is updated, the first fully working version will be made into a 0.1 release*
+### *Note: this project is a work in progress, as reverse engineering is moving on, the codebase is updated, the first fully working version will be made into a 0.1 release. Check [current project status](#current-status)*
 
 ## Background
 
