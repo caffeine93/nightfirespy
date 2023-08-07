@@ -8,7 +8,7 @@
 singleplay and multiplayer mode. The multiplayer mode allows the player to create a gameserver
 with preferred settings (map, CTF/DM mode, max players, password) which is displayed in the
 server list of other players who can in turn join it. This in-game server creation would later
-be augment with community-developed dedicated server options with more advanced server
+be augmented with community-developed dedicated server options with more advanced server
 configurations such as map rotations, IP ban and even an anti-cheat system.
 
 When the players choose the multiplayer mode, the server list provides them with a choice of
@@ -21,7 +21,7 @@ and displayes in the game menu.
 The master server system described above was developed and maintained by GameSpy, a company
 which was acquired by Glu Mobile in 2012 and [announced the shutdown of its entire master
 server infrastructure in 2014](https://web.archive.org/web/20230517215936/https://www.polygon.com/2014/4/3/5579254/gamespy-technology-shutdown-date-multiplayer-server-hosting-matchmaking).
-This suddenly left many of the games that it servered to die a slow death as players
+This suddenly left many of the games that it served to die a slow death as players
 were suddenly unable to get any servers listed. The only available option was to directly
 enter the IP:port value of a known gameserver host.
 
@@ -75,7 +75,7 @@ for references to the function, we can find the calling function which I renamed
 to get the number of ticks of system uptime. It then verifies whether the heartbeat
 was ever sent previously and if not, it immediately sends one (this is done when the
 gameserver is started). On the other hand, if a heartbeat was sent previously, it will
-wait for 30000ms, or simply three seconds, before sending another one. This answers our
+wait for 30000ms, or simply 30 seconds, before sending another one. This answers our
 question on which period of heartbeats to master shall be expected.
 
 Once the master receives the heartbeat, it issues a '\status\' packet back to the gameserver's
@@ -112,7 +112,7 @@ string assigned by GameSpy) to generate a secure 'validate' key (or shortened, '
 authenticates to the master. The master uses the 'enctype' information to encrypt the IP:port
 server list separated by the '\' delimiter. The same gamekey is used to encrypt this payload,
 thus the client can decrypt it and query the gameservers directly. The seckey/enctype algorithms
-were first reverse-engineered by Luigi Auriemma which [serves great resources regarding these
+were first reverse-engineered by Luigi Auriemma whose [site serves great resources regarding these
 algorithms](http://aluigi.altervista.org/papers.htm#gsmsalg).
 
 ## System design
@@ -140,7 +140,7 @@ first registered.
 
 Clients' communication with the master is already discussed above. Since it's done over TCP, a reliable
 stateful protocol and has well-defined communication stages, we need to keep track of it for each
-individual client. This means each client will, upon it's connection being accepted, be assigned its
+individual client. This means each client will, upon its connection being accepted, be assigned its
 own handler thread which which implements the state machine to go through all the connection stages.
 The pooled threads pattern is used where a predefined number of threads (can be dimensioned according
 to master's workload) is started upon which they block waiting for a client. Once the client gets added
