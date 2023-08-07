@@ -1,10 +1,10 @@
 /***************************************************************
  * Name:      nfmaster
- * Purpose:   Code for xxx
+ * Purpose:   Code for master server library implementation
  * Author:    Luka Culic Viskota (luka.culic.viskota@gmail.com)
  * Created:   Friday 2022-10-21-13.55.02
  * Copyright: Luka Culic Viskota (https://microcafe.co)
- * License:
+ * License:   GNU General Public License v2.0
  **************************************************************/
 
  #include <time.h>

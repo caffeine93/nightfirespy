@@ -1,10 +1,10 @@
 /***************************************************************
  * Name:      main
- * Purpose:   Code for xxx
+ * Purpose:   Code for main application utilizing the master API
  * Author:    Luka Culic Viskota (luka.culic.viskota@gmail.com)
  * Created:   Tuesday 2022-10-18-17.24.13
  * Copyright: Luka Culic Viskota (https://microcafe.co)
- * License:
+ * License:   GNU General Public License v2.0
  **************************************************************/
 
  #include <stdlib.h>
