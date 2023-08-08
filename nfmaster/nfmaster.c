@@ -269,13 +269,18 @@
  static struct GameServerNF *get_gameserver_by_addr(struct MasterServerNF *master, struct sockaddr_in *addr)
  {
      struct GameServerNF *gameserver = NULL;
+     uint8_t found = 0;
 
+     pthread_mutex_lock(&master->lock_gameservers);
      STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
-         if ((gameserver->ip == addr->sin_addr.s_addr) && (gameserver->port == ntohs(addr->sin_port)))
-            return gameserver;
+         if ((gameserver->ip == addr->sin_addr.s_addr) && (gameserver->port == ntohs(addr->sin_port))) {
+            found = 1;
+            break;
+         }
      }
+     pthread_mutex_unlock(&master->lock_gameservers);
 
-     return NULL;
+     return found ? gameserver : NULL;
  }
 
  static inline void add_gameserver(struct MasterServerNF *master, struct GameServerNF *gameserver)
@@ -308,6 +313,7 @@
     clock_gettime(CLOCK_REALTIME, &now_time);
 
     while (!master->cancel_threads) {
+        pthread_mutex_lock(&master->lock_gameservers);
         INFO("Serverlist cleanup: started\n");
         STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
             if (now_time.tv_sec - gameserver->time_last_comm.tv_sec > GAMESERVER_HEARTBEAT_INTERVAL_MAX) {
@@ -315,6 +321,7 @@
                     free(gameserver);
             }
         }
+        pthread_mutex_unlock(&master->lock_gameservers);
         INFO("Serverlist cleanup: completed\n");
         nanosleep(&poll_period, NULL);
     }
