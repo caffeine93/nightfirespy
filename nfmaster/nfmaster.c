@@ -59,7 +59,8 @@
  #define GAMESERVER_HEARTBEAT_INTERVAL_MAX  (GAMESERVER_HEARTBEAT_INTERVAL + GAMESERVER_HEARTBEAT_INTERVAL_MARGIN)
 
  #define GAMESERVER_PKTHDR_HEARTBEAT "\\heartbeat\\"
- #define GAMESERVER_PKTHDR_STATUS "\\gamename\\"
+ #define GAMESERVER_PKTHDR_STATUS_REQ "\\status\\"
+ #define GAMESERVER_PKTHDR_STATUS_RSP "\\gamename\\"
 
  struct pkt_key {
      uint8_t key;
@@ -105,6 +106,31 @@
      GAMESERVER_STATUS_RSP_PKT_QUERYID,
      GAMESERVER_STATUS_RSP_PKT_MAX
  };
+
+ static struct pkt_key pkt_gameserver_status_rsp_keys[] = {
+     {GAMESERVER_STATUS_RSP_PKT_GAMENAME, "gamename"},
+     {GAMESERVER_STATUS_RSP_PKT_GAMEVER, "gamever"},
+     {GAMESERVER_STATUS_RSP_PKT_DEDICATED, "dedicated"},
+     {GAMESERVER_STATUS_RSP_PKT_GAMEMODE, "gamemode"},
+     {GAMESERVER_STATUS_RSP_PKT_GAMETYPE, "gametype"},
+     {GAMESERVER_STATUS_RSP_PKT_HOSTPORT, "hostport"},
+     {GAMESERVER_STATUS_RSP_PKT_MAPNAME, "mapname"},
+     {GAMESERVER_STATUS_RSP_PKT_MAXPLAYERS, "maxplayers"},
+     {GAMESERVER_STATUS_RSP_PKT_HOSTNAME, "hostname"},
+     {GAMESERVER_STATUS_RSP_PKT_NUMPLAYERS, "numplayers"},
+     {GAMESERVER_STATUS_RSP_PKT_PASSWORD, "password"},
+     {GAMESERVER_STATUS_RSP_PKT_TIMELIMIT, "timelimit"},
+     {GAMESERVER_STATUS_RSP_PKT_FRAGLIMIT, "fraglimit"},
+     {GAMESERVER_STATUS_RSP_PKT_CTFLIMIT, "ctflimit"},
+     {GAMESERVER_STATUS_RSP_PKT_TEAMPLAY, "teamplay"},
+     {GAMESERVER_STATUS_RSP_PKT_FRIENDLYFIRE, "friendlyfire"},
+     {GAMESERVER_STATUS_RSP_PKT_WEAPONSTAY, "weaponstay"},
+     {GAMESERVER_STATUS_RSP_PKT_BOTSMODE, "bots_mode"},
+     {GAMESERVER_STATUS_RSP_PKT_FINAL, "final"},
+     {GAMESERVER_STATUS_RSP_PKT_QUERYID, "queryid"},
+     {PKT_INVALID_KEY, ""}
+ };
+
  /* master -> client */
  enum client_secure {
      CLIENT_SECURE_PKT_BASIC,
@@ -161,12 +187,6 @@
      switch (stage) {
      case GAMESERVER_STAGE_HEARTBEAT_REQ:
         INFO("HEARTBEAT_REQ");
-        break;
-     case GAMESERVER_STAGE_VALIDATE_REQ:
-        INFO("VALIDATE_REQ");
-        break;
-     case GAMESERVER_STAGE_VALIDATE_RSP:
-        INFO("VALIDATE_RSP");
         break;
      case GAMESERVER_STAGE_STATUS_REQ:
         INFO("STATUS_REQ");
@@ -234,6 +254,7 @@
             key_str = pkt_key->str;
             break;
         }
+        pkt_key++;
      }
 
      if (!key_str)
@@ -264,6 +285,7 @@
                 return strndup(pkt, curr_pkt - pkt);
             }
         }
+        pkt++;
      }
 
      return NULL;
@@ -274,23 +296,19 @@
      struct GameServerNF *gameserver = NULL;
      uint8_t found = 0;
 
-     pthread_mutex_lock(&master->lock_gameservers);
      STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
          if ((gameserver->ip == addr->sin_addr.s_addr) && (gameserver->port == ntohs(addr->sin_port))) {
             found = 1;
             break;
          }
      }
-     pthread_mutex_unlock(&master->lock_gameservers);
 
      return found ? gameserver : NULL;
  }
 
  static inline void add_gameserver(struct MasterServerNF *master, struct GameServerNF *gameserver)
  {
-     pthread_mutex_lock(&master->lock_gameservers);
      STAILQ_INSERT_TAIL(&master->gameservers, gameserver, entry);
-     pthread_mutex_unlock(&master->lock_gameservers);
  }
 
  static inline void update_gameserver_lastcomm_time(struct GameServerNF *gameserver)
@@ -340,20 +358,28 @@
      struct GameServerNF *gameserver = NULL;
      uint8_t new_server = 0;
      char *port_end = NULL;
+     char *pkt_status = GAMESERVER_PKTHDR_STATUS_REQ;
+
+     pthread_mutex_lock(&master->lock_gameservers);
 
      gameserver = get_gameserver_by_addr(master, addr);
      if (!gameserver) {
          new_server = 1;
          gameserver = malloc(sizeof(*gameserver));
-         if (!gameserver)
-            return -ENOMEM;
+         if (!gameserver) {
+            ret = -ENOMEM;
+            goto out;
+         }
+
+         memset(gameserver, 0, sizeof(*gameserver));
+         gameserver->valid = 0; /* just to make it obvious */
      }
 
      gameserver->ip = addr->sin_addr.s_addr;
 
      str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_PORT, packet);
      if (!str_val) {
-         INFO("Heartbeat: bad packet -> missing port param\n");
+         INFO("[GAMESERVER] Heartbeat: bad packet -> missing port param\n");
          ret = -EINVAL;
          goto out;
      }
@@ -362,13 +388,13 @@
         /* if server reports a different query port than from what it has sent the
          * heartbeat from, it's probably spoofing, thus reject the heartbeat */
         if (gameserver->port != ntohs(addr->sin_port)) {
-            INFO("Heartbeat: bad packet -> stated query port doesn't match packet's originating port\n");
+            INFO("[GAMESERVER] Heartbeat: bad packet -> stated query port doesn't match packet's originating port\n");
             ret = -EINVAL;
             goto out;
         }
      }
      else {
-        INFO("Heartbeat: bad packet -> missing or invalid port param\n");
+        INFO("[GAMESERVER] Heartbeat: bad packet -> missing or invalid port param\n");
         ret = -EINVAL;
         goto out;
      }
@@ -376,29 +402,39 @@
 
      str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_GAMENAME, packet);
      if (!str_val) {
-         INFO("Heartbeat: bad packet -> empty gamename param\n");
+         INFO("[GAMESERVER] Heartbeat: bad packet -> empty gamename param\n");
          ret = -EINVAL;
          goto out;
+     }
+     if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
+        INFO("[GAMESERVER] Heartbeat: bad packet -> unsupported game: %s", str_val);
+        ret = -EINVAL;
+        goto out;
      }
      free(str_val);
 
      str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_STATECHANGED, packet);
      if (!str_val) {
-         INFO("Heartbeat: empty 'statechanged', accepting anyway...\n");
+         INFO("[GAMESERVER] Heartbeat: empty 'statechanged', accepting anyway...\n");
          gameserver->statechanged = 0;
      }
      else {
          ret = sscanf(str_val, "%u", &statechanged);
          if (ret < 0) {
-             INFO("Heartbeat: invalid 'statechanged', accepting anyway...\n");
+             INFO("[GAMESERVER] Heartbeat: invalid 'statechanged', accepting anyway...\n");
              gameserver->statechanged = 0;
           }
          else
              gameserver->statechanged = statechanged;
      }
 
-     update_gameserver_lastcomm_time(gameserver);
      gameserver->conn_stage = GAMESERVER_STAGE_HEARTBEAT_REQ;
+     update_gameserver_lastcomm_time(gameserver);
+     if (new_server || gameserver->statechanged) {
+        /* the status req packet being sent does NOT terminate with '\0' */
+        sendto(master->gameservers_sock, pkt_status, strlen(pkt_status), 0, addr, sizeof(*addr));
+        gameserver->conn_stage = GAMESERVER_STAGE_STATUS_REQ;
+     }
 
 out:
      free(str_val);
@@ -409,19 +445,92 @@ out:
             free(gameserver);
      }
 
+     pthread_mutex_unlock(&master->lock_gameservers);
+
      return ret;
  }
 
  static int32_t process_status(struct MasterServerNF *master, struct sockaddr_in *addr, uint8_t *packet, ssize_t size)
  {
-     (void)master;
-     (void)addr;
-     (void)packet;
-     (void)size;
+     int32_t ret = 0;
+     char *str_val = NULL;
+     struct GameServerNF *gameserver = NULL;
+     char *port_end = NULL;
 
-     /* TODO: implement status parsing + filtering based on server params in client reqs */
+     pthread_mutex_lock(&master->lock_gameservers);
 
-     return 0;
+     gameserver = get_gameserver_by_addr(master, addr);
+     /* if gameserver is sending these status packets unpromopted or without
+      * previous heartbeat registration, ignore them */
+     if (!gameserver || (gameserver->conn_stage != GAMESERVER_STAGE_STATUS_REQ)) {
+        ret = -EINVAL;
+        goto out;
+     }
+
+     str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_GAMENAME, packet);
+     if (!str_val) {
+         INFO("[GAMESERVER] Status: bad packet -> empty gamename param\n");
+         ret = -EINVAL;
+         goto out;
+     }
+     if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
+        INFO("[GAMESERVER] Status: bad packet -> unsupported game: %s", str_val);
+        ret = -EINVAL;
+        goto out;
+     }
+     free(str_val);
+
+     str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_HOSTPORT, packet);
+     if (!str_val) {
+         INFO("[GAMESERVER] Status: bad packet -> missing hostport param\n");
+         ret = -EINVAL;
+         goto out;
+     }
+     gameserver->gameplay_port = strtoul(str_val, &port_end, 10);
+     if (*str_val != '\0' && *port_end == '\0') {
+         /* sanity check: query and gameplay port need to differ */
+         if (gameserver->gameplay_port == gameserver->port) {
+            INFO("[GAMESERVER] Status: bad packet -> query port same as gameplay port\n");
+            ret = -EINVAL;
+            goto out;
+         }
+     }
+     else {
+        INFO("[GAMESERVER] Status: bad packet -> missing or invalid hostport param\n");
+        ret = -EINVAL;
+        goto out;
+     }
+     free(str_val);
+
+     str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_HOSTNAME, packet);
+     if (!str_val) {
+         INFO("[GAMESERVER] Status: bad packet -> missing hostname param\n");
+         ret = -EINVAL;
+         goto out;
+     }
+     snprintf(gameserver->hostname, sizeof(gameserver->hostname), "%s", str_val);
+     free(str_val);
+
+     str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_MAPNAME, packet);
+     if (!str_val) {
+         INFO("[GAMESERVER] Status: bad packet -> missing mapname param\n");
+         ret = -EINVAL;
+         goto out;
+     }
+     snprintf(gameserver->mapname, sizeof(gameserver->hostname), "%s", str_val);
+
+     /* TODO: extract all the other params */
+
+     gameserver->conn_stage = GAMESERVER_STAGE_STATUS_RSP;
+     gameserver->statechanged = 0;
+     gameserver->valid = 1;
+
+out:
+     free(str_val);
+
+     pthread_mutex_unlock(&master->lock_gameservers);
+
+     return ret;
  }
 
  static int32_t process_gameserver_packet(struct MasterServerNF *master, struct sockaddr_in *addr, uint8_t *packet, ssize_t size)
@@ -433,7 +542,7 @@ out:
 
      if (!strncmp(packet, GAMESERVER_PKTHDR_HEARTBEAT, strlen(GAMESERVER_PKTHDR_HEARTBEAT)))
         return process_heartbeat(master, addr, packet, size);
-     else if (!strncmp(packet, GAMESERVER_PKTHDR_STATUS, strlen(GAMESERVER_PKTHDR_STATUS)))
+     else if (!strncmp(packet, GAMESERVER_PKTHDR_STATUS_RSP, strlen(GAMESERVER_PKTHDR_STATUS_RSP)))
         return process_status(master, addr, packet, size);
      else {
         INFO("Received invalid packet type on UDP sock\n");
@@ -674,7 +783,11 @@ out:
      uint16_t encrypted_pkt_sz = 0;
      struct GameServerNF *gameserver = NULL;
 
+     pthread_mutex_lock(&master->lock_gameservers);
      STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
+         if (!gameserver->valid)
+            continue;
+
          if (inet_ntop(AF_INET, gameserver->ip, ip_addr_str, INET_ADDRSTRLEN))
             continue;
 
@@ -692,6 +805,7 @@ out:
          strncat(pkt, port_str, pkt_free_space);
          pkt_free_space -= strlen(port_str);
      }
+     pthread_mutex_unlock(&master->lock_gameservers);
 
      /* empty list only contains delimiters, TODO: check */
      if (!strlen(pkt))

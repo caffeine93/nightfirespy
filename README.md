@@ -185,11 +185,15 @@ infrastructure has been written which:
 
 - ported aluigi's seckey/enctype algorithm implementation
 
-- gameserver heartbeat handling has been implemented, but 'status' still pending
+- gameserver heartbeat handling has been implemented
 
 - implemented server cleanup
 
 - top-level signal handler installed which allows for calling of MasterServer_free()
   API function and properly frees the resources, closes the sockets and stops and joins the
   threads.
+
+### Verification status
+
+- heartbeat processing verified through netcat
 

@@ -8,12 +8,11 @@
 
 #define CLIENTS_COMM_POOL_SIZE 8
 
+#define GAMESERVER_PARAMS_MAX_SZ 128
 #define SECURE_KEY_CHALLENGE_SZ 6
 
 enum gameserver_stage {
      GAMESERVER_STAGE_HEARTBEAT_REQ, /* server -> master */
-     GAMESERVER_STAGE_VALIDATE_REQ, /* master -> server */
-     GAMESERVER_STAGE_VALIDATE_RSP, /* server -> master */
      GAMESERVER_STAGE_STATUS_REQ, /* master -> server */
      GAMESERVER_STAGE_STATUS_RSP, /* server -> master */
      GAMESERVER_STAGE_INVALID
@@ -40,6 +39,10 @@ struct GameServerNF {
     uint16_t port;
     in_addr_t ip;
     uint8_t statechanged;
+    uint8_t valid;
+    uint16_t gameplay_port;
+    char hostname[GAMESERVER_PARAMS_MAX_SZ];
+    char mapname[GAMESERVER_PARAMS_MAX_SZ];
     struct timespec time_last_comm;
     enum gameserver_stage conn_stage;
     STAILQ_ENTRY(GameServerNF) entry;
