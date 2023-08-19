@@ -58,6 +58,9 @@
  #define GAMESERVER_HEARTBEAT_INTERVAL_MARGIN 10 /* 10s */
  #define GAMESERVER_HEARTBEAT_INTERVAL_MAX  (GAMESERVER_HEARTBEAT_INTERVAL + GAMESERVER_HEARTBEAT_INTERVAL_MARGIN)
 
+ #define GAMESERVER_PKTHDR_HEARTBEAT "\\heartbeat\\"
+ #define GAMESERVER_PKTHDR_STATUS "\\gamename\\"
+
  struct pkt_key {
      uint8_t key;
      char str[MAX_PKT_KEY_LEN];
@@ -242,20 +245,20 @@
             pkt++;
             /* invalid packet, key can't be empty */
             if ((*pkt == '\0') || (*pkt == '\\'))
-                return 1;
+                return NULL;
 
             /* found the desired key */
             if (!strncmp(pkt, key_str, strlen(key_str))) {
                 pkt += strlen(key_str);
                 /* missing delimiter after key */
                 if ((*pkt == '\0') || (*pkt != '\\'))
-                    return 1;
+                    return NULL;
 
                 pkt++;
 
                 /* find the end of the value */
                 curr_pkt = pkt;
-                while ((curr_pkt != '\0') && (curr_pkt != '\\'))
+                while ((*curr_pkt != '\0') && (*curr_pkt != '\\'))
                     curr_pkt++;
 
                 return strndup(pkt, curr_pkt - pkt);
@@ -355,7 +358,7 @@
          goto out;
      }
      gameserver->port = strtoul(str_val, &port_end, 10);
-     if (str_val != '\0' && port_end == '\0') {
+     if (*str_val != '\0' && *port_end == '\0') {
         /* if server reports a different query port than from what it has sent the
          * heartbeat from, it's probably spoofing, thus reject the heartbeat */
         if (gameserver->port != ntohs(addr->sin_port)) {
@@ -428,9 +431,9 @@ out:
      if (!size)
         return 0;
 
-     if (!strncmp(packet, "\\heartbeat\\", size - 1))
+     if (!strncmp(packet, GAMESERVER_PKTHDR_HEARTBEAT, strlen(GAMESERVER_PKTHDR_HEARTBEAT)))
         return process_heartbeat(master, addr, packet, size);
-     else if (!strncmp(packet, "\\gamename\\", size - 1))
+     else if (!strncmp(packet, GAMESERVER_PKTHDR_STATUS, strlen(GAMESERVER_PKTHDR_STATUS)))
         return process_status(master, addr, packet, size);
      else {
         INFO("Received invalid packet type on UDP sock\n");
@@ -582,7 +585,8 @@ out:
      uint32_t enctype_ver = 0;
      enum client_stage ret = CLIENT_STAGE_SERVER_LIST_REQ;
 
-     recv(client->sock, pkt, MAX_PKT_SZ, 0);
+     if (recv(client->sock, pkt, MAX_PKT_SZ, 0) <= 0)
+        return CLIENT_STAGE_INVALID;
 
      str_val = pkt_get_value(pkt_client_validate_keys, CLIENT_VALIDATE_PKT_GAMENAME, pkt);
      if (!str_val)
@@ -599,6 +603,7 @@ out:
      if (!str_val)
         return CLIENT_STAGE_INVALID;
 
+     /* TODO: make this more robust, enctype value could be more than one digit? */
      if (!isdigit(str_val[0]) || (atoi(str_val[0]) != NIGHTFIRE_ENCTYPE_VER)) {
          ret = CLIENT_STAGE_INVALID;
          free(str_val);
@@ -611,7 +616,7 @@ out:
         return CLIENT_STAGE_INVALID;
 
      expected_validate = gsseckey(NULL, client->secure_key_challenge, NIGHTFIRE_GAMEKEY, NIGHTFIRE_ENCTYPE_VER);
-     if (strncmp(str_val, expected_validate, strlen(expected_validate)))
+     if (!expected_validate || strncmp(str_val, expected_validate, strlen(expected_validate)))
         ret = CLIENT_STAGE_INVALID;
 
      free(str_val);
@@ -629,18 +634,21 @@ out:
      uint32_t enctype_ver = 0;
      enum client_stage ret = CLIENT_STAGE_SERVER_LIST_RSP;
 
-     recv(client->sock, pkt, MAX_PKT_SZ, 0);
+     if (recv(client->sock, pkt, MAX_PKT_SZ, 0) <= 0)
+        return CLIENT_STAGE_INVALID;
 
      str_val = pkt_get_value(pkt_client_list_keys, CLIENT_LIST_PKT_LIST, pkt);
      if (!str_val)
         return CLIENT_STAGE_INVALID;
+
      /* TODO: cmp list send? need to investigate more, ignore param for now */
+     free(str_val);
 
      str_val = pkt_get_value(pkt_client_list_keys, CLIENT_LIST_PKT_GAMENAME, pkt);
      if (!str_val)
         return CLIENT_STAGE_INVALID;
 
-     if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(str_val))) {
+     if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
          ret = CLIENT_STAGE_INVALID;
          free(str_val);
          goto out;
