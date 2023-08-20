@@ -407,7 +407,7 @@
          goto out;
      }
      if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
-        INFO("[GAMESERVER] Heartbeat: bad packet -> unsupported game: %s", str_val);
+        INFO("[GAMESERVER] Heartbeat: bad packet -> unsupported game: %s\n", str_val);
         ret = -EINVAL;
         goto out;
      }
@@ -474,7 +474,7 @@ out:
          goto out;
      }
      if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
-        INFO("[GAMESERVER] Status: bad packet -> unsupported game: %s", str_val);
+        INFO("[GAMESERVER] Status: bad packet -> unsupported game: %s\n", str_val);
         ret = -EINVAL;
         goto out;
      }
@@ -846,7 +846,7 @@ out:
      return ret;
  }
 
- void *client_handler(void *arg)
+ static void *client_handler(void *arg)
  {
      struct MasterServerNF *master = NULL;
      struct ClientNF *client = NULL;
