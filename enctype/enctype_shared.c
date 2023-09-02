@@ -19,6 +19,8 @@
 
 */
 
+#include "enctype.h"
+
 void encshare2(unsigned int *tbuff, unsigned int *tbuffp, int len) {
     unsigned int    t1,
                     t2,

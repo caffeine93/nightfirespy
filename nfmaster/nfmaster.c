@@ -12,6 +12,7 @@
  #include <stdlib.h>
  #include <stdio.h>
  #include <string.h>
+ #include <ctype.h>
  #include <syslog.h>
  #include <pthread.h>
  #include <regex.h>
@@ -24,6 +25,7 @@
 
  #include "nfmaster.h"
  #include "gsmsalg.h"
+ #include "enctype.h"
 
  #define MASTERSPY_TCP_PORT 28900
  #define MASTERSPY_UDP_PORT 27900
@@ -54,9 +56,11 @@
  #define NIGHTFIRE_ENCTYPE_VER 2
 
 
- #define GAMESERVER_HEARTBEAT_INTERVAL 30 /* 30s */
+ #define GAMESERVER_HEARTBEAT_INTERVAL 300 /* 5min */
  #define GAMESERVER_HEARTBEAT_INTERVAL_MARGIN 10 /* 10s */
  #define GAMESERVER_HEARTBEAT_INTERVAL_MAX  (GAMESERVER_HEARTBEAT_INTERVAL + GAMESERVER_HEARTBEAT_INTERVAL_MARGIN)
+
+ #define GAMESERVER_STATUS_RSP_WAIT_MAX 5 /* 5s */
 
  #define GAMESERVER_PKTHDR_HEARTBEAT "\\heartbeat\\"
  #define GAMESERVER_PKTHDR_STATUS_REQ "\\status\\"
@@ -228,12 +232,12 @@
      while (pkt_key->key != PKT_INVALID_KEY) {
         if (pkt_key->key == key) {
             *curr_pkt = '\\';
-            (*curr_pkt)++;
+            curr_pkt++;
             strncpy(curr_pkt, pkt_key->str, MAX_PKT_KEY_LEN);
             /* key/value strings are NOT null-terminted in packages */
             curr_pkt += strlen(pkt_key->str);
             *curr_pkt = '\\';
-            (*curr_pkt)++;
+            curr_pkt++;
             strncpy(curr_pkt, val, MAX_PKT_VAL_LEN);
             curr_pkt += strlen(val);
             return curr_pkt;
@@ -294,16 +298,23 @@
  static struct GameServerNF *get_gameserver_by_addr(struct MasterServerNF *master, struct sockaddr_in *addr)
  {
      struct GameServerNF *gameserver = NULL;
-     uint8_t found = 0;
 
      STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
-         if ((gameserver->ip == addr->sin_addr.s_addr) && (gameserver->port == ntohs(addr->sin_port))) {
-            found = 1;
-            break;
-         }
+         if ((gameserver->ip == addr->sin_addr.s_addr) && (gameserver->port == ntohs(addr->sin_port)))
+            return gameserver;
      }
 
-     return found ? gameserver : NULL;
+     return NULL;
+ }
+
+ static inline const char *print_gameserver_ip(struct GameServerNF *gameserver, char *ip_addr_str, uint32_t sz)
+ {
+     struct in_addr gameserver_ip = {.s_addr = gameserver->ip};
+
+     if (sz < INET_ADDRSTRLEN)
+        return NULL;
+
+     return inet_ntop(AF_INET, &gameserver_ip, ip_addr_str, INET_ADDRSTRLEN);
  }
 
  static inline void add_gameserver(struct MasterServerNF *master, struct GameServerNF *gameserver)
@@ -325,25 +336,31 @@
          .tv_nsec = 0,
      };
      struct timespec now_time = {0};
+     uint32_t interval_max = 0;
+     uint32_t n_removed_servers = 0;
 
      if (!arg)
         return NULL;
 
     master = (struct MasterServerNF *)arg;
 
-    clock_gettime(CLOCK_REALTIME, &now_time);
-
     while (!master->cancel_threads) {
+        n_removed_servers = 0;
         pthread_mutex_lock(&master->lock_gameservers);
-        INFO("Serverlist cleanup: started\n");
+        clock_gettime(CLOCK_REALTIME, &now_time);
         STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
-            if (now_time.tv_sec - gameserver->time_last_comm.tv_sec > GAMESERVER_HEARTBEAT_INTERVAL_MAX) {
+            interval_max = (gameserver->conn_stage == GAMESERVER_STAGE_STATUS_REQ) ?
+                GAMESERVER_STATUS_RSP_WAIT_MAX : GAMESERVER_HEARTBEAT_INTERVAL_MAX;
+            if (now_time.tv_sec - gameserver->time_last_comm.tv_sec > interval_max) {
                     STAILQ_REMOVE(&master->gameservers, gameserver, GameServerNF, entry);
                     free(gameserver);
+                    n_removed_servers++;
             }
         }
         pthread_mutex_unlock(&master->lock_gameservers);
-        INFO("Serverlist cleanup: completed\n");
+        if (n_removed_servers)
+            INFO("[SERVERLIST] Cleanup: removed %u inactive servers\n", n_removed_servers);
+
         nanosleep(&poll_period, NULL);
     }
 
@@ -358,6 +375,7 @@
      struct GameServerNF *gameserver = NULL;
      uint8_t new_server = 0;
      char *port_end = NULL;
+     char ip_addr_str[INET_ADDRSTRLEN] = {'\0'};
      char *pkt_status = GAMESERVER_PKTHDR_STATUS_REQ;
 
      pthread_mutex_lock(&master->lock_gameservers);
@@ -414,26 +432,29 @@
      free(str_val);
 
      str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_STATECHANGED, packet);
-     if (!str_val) {
-         INFO("[GAMESERVER] Heartbeat: empty 'statechanged', accepting anyway...\n");
+     if (!str_val)
          gameserver->statechanged = 0;
-     }
      else {
          ret = sscanf(str_val, "%u", &statechanged);
-         if (ret < 0) {
-             INFO("[GAMESERVER] Heartbeat: invalid 'statechanged', accepting anyway...\n");
+         if (ret < 0)
              gameserver->statechanged = 0;
-          }
          else
              gameserver->statechanged = statechanged;
      }
 
+     ret = 0;
+
      gameserver->conn_stage = GAMESERVER_STAGE_HEARTBEAT_REQ;
      update_gameserver_lastcomm_time(gameserver);
+
+     print_gameserver_ip(gameserver, ip_addr_str, sizeof(ip_addr_str));
+     INFO("[GAMESERVER] Heartbeat: processed from %s:%u, statechanged: %u\n", ip_addr_str, gameserver->port, gameserver->statechanged);
+
      if (new_server || gameserver->statechanged) {
         /* the status req packet being sent does NOT terminate with '\0' */
         sendto(master->gameservers_sock, pkt_status, strlen(pkt_status), 0, addr, sizeof(*addr));
         gameserver->conn_stage = GAMESERVER_STAGE_STATUS_REQ;
+        INFO("[GAMESERVER] Heartbeat: sent status req to %s:%u\n", ip_addr_str, gameserver->port);
      }
 
 out:
@@ -456,6 +477,7 @@ out:
      char *str_val = NULL;
      struct GameServerNF *gameserver = NULL;
      char *port_end = NULL;
+     char ip_addr_str[INET_ADDRSTRLEN] = {'\0'};
 
      pthread_mutex_lock(&master->lock_gameservers);
 
@@ -524,6 +546,10 @@ out:
      gameserver->conn_stage = GAMESERVER_STAGE_STATUS_RSP;
      gameserver->statechanged = 0;
      gameserver->valid = 1;
+
+     if (print_gameserver_ip(gameserver, ip_addr_str, sizeof(ip_addr_str)))
+        INFO("[GAMESERVER] Status: processed from %s:%u, name: %s, gameport: %u, map: %s\n",
+             ip_addr_str, gameserver->port, gameserver->hostname, gameserver->gameplay_port, gameserver->mapname);
 
 out:
      free(str_val);
@@ -713,7 +739,7 @@ out:
         return CLIENT_STAGE_INVALID;
 
      /* TODO: make this more robust, enctype value could be more than one digit? */
-     if (!isdigit(str_val[0]) || (atoi(str_val[0]) != NIGHTFIRE_ENCTYPE_VER)) {
+     if (!isdigit(str_val[0]) || (atoi(str_val) != NIGHTFIRE_ENCTYPE_VER)) {
          ret = CLIENT_STAGE_INVALID;
          free(str_val);
          goto out;
@@ -788,7 +814,7 @@ out:
          if (!gameserver->valid)
             continue;
 
-         if (inet_ntop(AF_INET, gameserver->ip, ip_addr_str, INET_ADDRSTRLEN))
+         if (!inet_ntop(AF_INET, &gameserver->ip, ip_addr_str, INET_ADDRSTRLEN))
             continue;
 
          snprintf(port_str, sizeof(port_str), "%u", gameserver->port);

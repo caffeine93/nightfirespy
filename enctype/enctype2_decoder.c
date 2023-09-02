@@ -64,7 +64,7 @@ LICENSE
 
 #include <string.h>
 
-
+#include "enctype.h"
 
 void encshare1(unsigned int *tbuff, unsigned char *datap, int len);
 void encshare4(unsigned char *src, int size, unsigned int *dest);
@@ -129,7 +129,7 @@ int enctype2_encoder(unsigned char *key, unsigned char *data, int size) {
         data[1 + header_size + i] = data[i];
     }
     *data = header_size;
-    
+
     datap = data + 1;
     memset(datap, 0, *data);
 

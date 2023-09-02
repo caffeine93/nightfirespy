@@ -74,14 +74,14 @@ for references to the function, we can find the calling function which I renamed
 'FUN_heartbeat_master()'. This function calls [GetTickCount()](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-gettickcount)
 to get the number of ticks of system uptime. It then verifies whether the heartbeat
 was ever sent previously and if not, it immediately sends one (this is done when the
-gameserver is started). On the other hand, if a heartbeat was sent previously, it will
-wait for 30000ms, or simply 30 seconds, before sending another one. This answers our
-question on which period of heartbeats to master shall be expected.
+gameserver is started). It will keep sending so each 30000ms, or simply 30 seconds, until
+the master server responds with a '\status\' packet.
 
 Once the master receives the heartbeat, it issues a '\status\' packet back to the gameserver's
 query port. The gameserver in turn responds with information about its configuration and status
 (current map, gamemode, game version, max players limit, etc.). Afterwards, the gameserver will
-continue sending heartbeats at interval discussed above since it is entirely its duty to
+continue sending heartbeats at a longer interval (5 minutes) with no "\statechanged\1", indicating
+that the server configuration is unchanged. It is entirely the duty of the gameserver to
 keep notifying the master that it's still alive and prevent the master from removing it from
 the list.
 
@@ -195,5 +195,6 @@ infrastructure has been written which:
 
 ### Verification status
 
-- heartbeat processing verified through netcat
+- heartbeat and status processing verified by running a real Nightfire game server
+- verified that the server is removed from the list after it's closed
 
