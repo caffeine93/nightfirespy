@@ -46,6 +46,9 @@
  #define ERR(...) syslog(LOG_ERR, __VA_ARGS__)
  #endif // LOGGING_TYPE_PRINTF
 
+ #define GAMESERVER_INFO( ...) INFO("[GAMESERVER]" __VA_ARGS__)
+ #define CLIENT_INFO(...) INFO("[CLIENT]" __VA_ARGS__)
+
  #define MAX_PKT_SZ      1024
  #define MAX_PKT_KEY_LEN 32
  #define MAX_PKT_VAL_LEN 64
@@ -307,14 +310,14 @@
      return NULL;
  }
 
- static inline const char *print_gameserver_ip(struct GameServerNF *gameserver, char *ip_addr_str, uint32_t sz)
+ static inline const char *print_ip(in_addr_t ip_addr, char *ip_addr_str, uint32_t sz)
  {
-     struct in_addr gameserver_ip = {.s_addr = gameserver->ip};
+     struct in_addr ip = {.s_addr = ip_addr};
 
      if (sz < INET_ADDRSTRLEN)
         return NULL;
 
-     return inet_ntop(AF_INET, &gameserver_ip, ip_addr_str, INET_ADDRSTRLEN);
+     return inet_ntop(AF_INET, &ip, ip_addr_str, INET_ADDRSTRLEN);
  }
 
  static inline void add_gameserver(struct MasterServerNF *master, struct GameServerNF *gameserver)
@@ -394,10 +397,11 @@
      }
 
      gameserver->ip = addr->sin_addr.s_addr;
+     print_ip(gameserver->ip, ip_addr_str, sizeof(ip_addr_str));
 
      str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_PORT, packet);
      if (!str_val) {
-         INFO("[GAMESERVER] Heartbeat: bad packet -> missing port param\n");
+         GAMESERVER_INFO("[%s] Heartbeat: bad packet -> missing port param\n", ip_addr_str);
          ret = -EINVAL;
          goto out;
      }
@@ -406,13 +410,13 @@
         /* if server reports a different query port than from what it has sent the
          * heartbeat from, it's probably spoofing, thus reject the heartbeat */
         if (gameserver->port != ntohs(addr->sin_port)) {
-            INFO("[GAMESERVER] Heartbeat: bad packet -> stated query port doesn't match packet's originating port\n");
+            GAMESERVER_INFO("[%s] Heartbeat: bad packet -> stated query port doesn't match packet's originating port\n", ip_addr_str);
             ret = -EINVAL;
             goto out;
         }
      }
      else {
-        INFO("[GAMESERVER] Heartbeat: bad packet -> missing or invalid port param\n");
+        GAMESERVER_INFO("[%s] Heartbeat: bad packet -> missing or invalid port param\n", ip_addr_str);
         ret = -EINVAL;
         goto out;
      }
@@ -420,12 +424,12 @@
 
      str_val = pkt_get_value(pkt_gameserver_heartbeat_keys, GAMESERVER_HEARTBEAT_PKT_GAMENAME, packet);
      if (!str_val) {
-         INFO("[GAMESERVER] Heartbeat: bad packet -> empty gamename param\n");
+         GAMESERVER_INFO("[%s] Heartbeat: bad packet -> empty gamename param\n", ip_addr_str);
          ret = -EINVAL;
          goto out;
      }
      if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
-        INFO("[GAMESERVER] Heartbeat: bad packet -> unsupported game: %s\n", str_val);
+        GAMESERVER_INFO("[%s] Heartbeat: bad packet -> unsupported game: %s\n", ip_addr_str, str_val);
         ret = -EINVAL;
         goto out;
      }
@@ -447,14 +451,13 @@
      gameserver->conn_stage = GAMESERVER_STAGE_HEARTBEAT_REQ;
      update_gameserver_lastcomm_time(gameserver);
 
-     print_gameserver_ip(gameserver, ip_addr_str, sizeof(ip_addr_str));
-     INFO("[GAMESERVER] Heartbeat: processed from %s:%u, statechanged: %u\n", ip_addr_str, gameserver->port, gameserver->statechanged);
+     GAMESERVER_INFO("[%s] Heartbeat: processed from port %u, statechanged: %u\n", ip_addr_str, gameserver->port, gameserver->statechanged);
 
      if (new_server || gameserver->statechanged) {
         /* the status req packet being sent does NOT terminate with '\0' */
         sendto(master->gameservers_sock, pkt_status, strlen(pkt_status), 0, addr, sizeof(*addr));
         gameserver->conn_stage = GAMESERVER_STAGE_STATUS_REQ;
-        INFO("[GAMESERVER] Heartbeat: sent status req to %s:%u\n", ip_addr_str, gameserver->port);
+        GAMESERVER_INFO("[%s] Heartbeat: sent status req to port %u\n", ip_addr_str, gameserver->port);
      }
 
 out:
@@ -489,14 +492,16 @@ out:
         goto out;
      }
 
+     print_ip(gameserver->ip, ip_addr_str, sizeof(ip_addr_str));
+
      str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_GAMENAME, packet);
      if (!str_val) {
-         INFO("[GAMESERVER] Status: bad packet -> empty gamename param\n");
+         GAMESERVER_INFO("[%s] Status: bad packet -> empty gamename param\n", ip_addr_str);
          ret = -EINVAL;
          goto out;
      }
      if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
-        INFO("[GAMESERVER] Status: bad packet -> unsupported game: %s\n", str_val);
+        GAMESERVER_INFO("[%s] Status: bad packet -> unsupported game: %s\n", ip_addr_str, str_val);
         ret = -EINVAL;
         goto out;
      }
@@ -504,7 +509,7 @@ out:
 
      str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_HOSTPORT, packet);
      if (!str_val) {
-         INFO("[GAMESERVER] Status: bad packet -> missing hostport param\n");
+         GAMESERVER_INFO("[%s] Status: bad packet -> missing hostport param\n", ip_addr_str);
          ret = -EINVAL;
          goto out;
      }
@@ -512,13 +517,13 @@ out:
      if (*str_val != '\0' && *port_end == '\0') {
          /* sanity check: query and gameplay port need to differ */
          if (gameserver->gameplay_port == gameserver->port) {
-            INFO("[GAMESERVER] Status: bad packet -> query port same as gameplay port\n");
+            GAMESERVER_INFO("[%s] Status: bad packet -> query port same as gameplay port\n", ip_addr_str);
             ret = -EINVAL;
             goto out;
          }
      }
      else {
-        INFO("[GAMESERVER] Status: bad packet -> missing or invalid hostport param\n");
+        GAMESERVER_INFO("[%s] Status: bad packet -> missing or invalid hostport param\n", ip_addr_str);
         ret = -EINVAL;
         goto out;
      }
@@ -526,7 +531,7 @@ out:
 
      str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_HOSTNAME, packet);
      if (!str_val) {
-         INFO("[GAMESERVER] Status: bad packet -> missing hostname param\n");
+         GAMESERVER_INFO("[%s] Status: bad packet -> missing hostname param\n", ip_addr_str);
          ret = -EINVAL;
          goto out;
      }
@@ -535,7 +540,7 @@ out:
 
      str_val = pkt_get_value(pkt_gameserver_status_rsp_keys, GAMESERVER_STATUS_RSP_PKT_MAPNAME, packet);
      if (!str_val) {
-         INFO("[GAMESERVER] Status: bad packet -> missing mapname param\n");
+         GAMESERVER_INFO("[%s] Status: bad packet -> missing mapname param\n", ip_addr_str);
          ret = -EINVAL;
          goto out;
      }
@@ -547,9 +552,8 @@ out:
      gameserver->statechanged = 0;
      gameserver->valid = 1;
 
-     if (print_gameserver_ip(gameserver, ip_addr_str, sizeof(ip_addr_str)))
-        INFO("[GAMESERVER] Status: processed from %s:%u, name: %s, gameport: %u, map: %s\n",
-             ip_addr_str, gameserver->port, gameserver->hostname, gameserver->gameplay_port, gameserver->mapname);
+     GAMESERVER_INFO("[%s] Status: processed from port %u, name: %s, gameport: %u, map: %s\n", ip_addr_str,
+                     gameserver->port, gameserver->hostname, gameserver->gameplay_port, gameserver->mapname);
 
 out:
      free(str_val);
@@ -691,6 +695,9 @@ out:
      uint8_t pkt[MAX_PKT_SZ] = {'\0'};
      time_t time_seed;
      uint8_t *pkt_bldr = NULL;
+     char ip_addr_str[INET_ADDRSTRLEN] = {'\0'};
+
+     print_ip(client->ip, ip_addr_str, sizeof(ip_addr_str));
 
      srand((unsigned) time(&time_seed));
 
@@ -708,6 +715,7 @@ out:
         return CLIENT_STAGE_INVALID;
 
      send(client->sock, pkt, pkt_bldr - pkt + 1, 0);
+     CLIENT_INFO("[%s] Secure: challenge req sent\n", ip_addr_str);
 
      return CLIENT_STAGE_SECURE_RSP;
  }
@@ -719,15 +727,21 @@ out:
      char *expected_validate = NULL;
      uint32_t enctype_ver = 0;
      enum client_stage ret = CLIENT_STAGE_SERVER_LIST_REQ;
+     char ip_addr_str[INET_ADDRSTRLEN] = {'\0'};
+
+     print_ip(client->ip, ip_addr_str, sizeof(ip_addr_str));
 
      if (recv(client->sock, pkt, MAX_PKT_SZ, 0) <= 0)
         return CLIENT_STAGE_INVALID;
 
      str_val = pkt_get_value(pkt_client_validate_keys, CLIENT_VALIDATE_PKT_GAMENAME, pkt);
-     if (!str_val)
+     if (!str_val) {
+        CLIENT_INFO("[%s] Secure: missing gamename in rsp\n", ip_addr_str);
         return CLIENT_STAGE_INVALID;
+     }
 
      if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(str_val))) {
+         CLIENT_INFO("[%s] Secure: unsupported gamename %s in rsp\n", ip_addr_str,  str_val);
          ret = CLIENT_STAGE_INVALID;
          free(str_val);
          goto out;
@@ -735,11 +749,14 @@ out:
      free(str_val);
 
      str_val = pkt_get_value(pkt_client_validate_keys, CLIENT_VALIDATE_PKT_ENCTYPE, pkt);
-     if (!str_val)
+     if (!str_val) {
+        CLIENT_INFO("[%s] Secure: missing enctype in rsp\n", ip_addr_str);
         return CLIENT_STAGE_INVALID;
+     }
 
      /* TODO: make this more robust, enctype value could be more than one digit? */
      if (!isdigit(str_val[0]) || (atoi(str_val) != NIGHTFIRE_ENCTYPE_VER)) {
+         CLIENT_INFO("[%s] Secure: unsupported enctype in rsp\n", ip_addr_str);
          ret = CLIENT_STAGE_INVALID;
          free(str_val);
          goto out;
@@ -747,13 +764,18 @@ out:
      free(str_val);
 
      str_val = pkt_get_value(pkt_client_validate_keys, CLIENT_VALIDATE_PKT_VALIDATE, pkt);
-     if (!str_val)
+     if (!str_val) {
+        CLIENT_INFO("[%s] Secure: missing validate seckey in rsp\n", ip_addr_str);
         return CLIENT_STAGE_INVALID;
+     }
 
      expected_validate = gsseckey(NULL, client->secure_key_challenge, NIGHTFIRE_GAMEKEY, NIGHTFIRE_ENCTYPE_VER);
-     if (!expected_validate || strncmp(str_val, expected_validate, strlen(expected_validate)))
+     if (!expected_validate || strncmp(str_val, expected_validate, strlen(expected_validate))) {
+        CLIENT_INFO("[%s] Secure: incorrect validate seckey in rsp\n", ip_addr_str);
         ret = CLIENT_STAGE_INVALID;
+     }
 
+     CLIENT_INFO("[%s] Secure: validated seckey from client rsp\n", ip_addr_str);
      free(str_val);
      free(expected_validate);
 
@@ -768,22 +790,32 @@ out:
      char *expected_validate = NULL;
      uint32_t enctype_ver = 0;
      enum client_stage ret = CLIENT_STAGE_SERVER_LIST_RSP;
+     char ip_addr_str[INET_ADDRSTRLEN] = {'\0'};
 
-     if (recv(client->sock, pkt, MAX_PKT_SZ, 0) <= 0)
+     print_ip(client->ip, ip_addr_str, sizeof(ip_addr_str));
+
+     if (recv(client->sock, pkt, MAX_PKT_SZ, 0) <= 0) {
+        CLIENT_INFO("[%s] List: timeout waiting for client req\n", ip_addr_str);
         return CLIENT_STAGE_INVALID;
+     }
 
      str_val = pkt_get_value(pkt_client_list_keys, CLIENT_LIST_PKT_LIST, pkt);
-     if (!str_val)
+     if (!str_val) {
+        CLIENT_INFO("[%s] List: missing list method in client req\n", ip_addr_str);
         return CLIENT_STAGE_INVALID;
+     }
 
      /* TODO: cmp list send? need to investigate more, ignore param for now */
      free(str_val);
 
      str_val = pkt_get_value(pkt_client_list_keys, CLIENT_LIST_PKT_GAMENAME, pkt);
-     if (!str_val)
+     if (!str_val) {
+        CLIENT_INFO("[%s] List: missing gamename in client req\n", ip_addr_str);
         return CLIENT_STAGE_INVALID;
+     }
 
      if (strncmp(str_val, NIGHTFIRE_GAMENAME, strlen(NIGHTFIRE_GAMENAME))) {
+         CLIENT_INFO("[%s] List: unsupported gamename %s in client req\n", ip_addr_str, str_val);
          ret = CLIENT_STAGE_INVALID;
          free(str_val);
          goto out;
@@ -791,9 +823,12 @@ out:
      free(str_val);
 
      str_val = pkt_get_value(pkt_client_list_keys, CLIENT_LIST_PKT_FINAL, pkt);
-     if (!str_val)
+     if (!str_val) {
+         CLIENT_INFO("[%s] List: missing final in client req\n", ip_addr_str);
          ret = CLIENT_STAGE_INVALID;
+     }
 
+     CLIENT_INFO("[%s] List: processed server list req\n", ip_addr_str);
      free(str_val);
 
 out:
@@ -839,6 +874,8 @@ out:
 
      encrypted_pkt_sz = enctype2_encoder(NIGHTFIRE_GAMEKEY, pkt, strlen(pkt) + 1);
      send(client->sock, pkt, encrypted_pkt_sz, 0);
+     print_ip(client->ip, ip_addr_str, sizeof(ip_addr_str));
+     CLIENT_INFO("[%s] List: sent server list rsp to client\n", ip_addr_str);
 
      /* this is the final stage and client can be invalidated now, this will in turn
       * close the connection and free the client resources in the handler thread */
@@ -913,7 +950,7 @@ out:
     int32_t ret = 0;
     struct ClientNF *gameclient = NULL;
     struct sockaddr_in client_addr = {0};
-    socklen_t client_addr_len = 0;
+    socklen_t client_addr_len = sizeof(client_addr);
     uint32_t client_timeout = CLIENT_TCP_CONN_TIMEOUT_MS;
 
     if (!master)
@@ -947,7 +984,7 @@ out:
                 return -ENOMEM;
 
             gameclient->port = ntohs(client_addr.sin_port);
-            gameclient->ip = ntohl(client_addr.sin_addr.s_addr);
+            gameclient->ip = client_addr.sin_addr.s_addr;
             gameclient->sock = ret;
             ret = setsockopt(gameclient->sock, SOL_TCP, TCP_USER_TIMEOUT,
                              (uint8_t *)&client_timeout, sizeof(client_timeout));
@@ -976,6 +1013,7 @@ out:
             close(dummy_sock);
      }
  }
+
  void MasterServer_free(struct MasterServerNF *master)
  {
      struct ClientNF *client = NULL;
