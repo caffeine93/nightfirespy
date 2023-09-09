@@ -189,45 +189,6 @@
      {PKT_INVALID_KEY, ""}
  };
 
- static inline void dbg_print_gameserver_stage(enum gameserver_stage stage)
- {
-     switch (stage) {
-     case GAMESERVER_STAGE_HEARTBEAT_REQ:
-        INFO("HEARTBEAT_REQ");
-        break;
-     case GAMESERVER_STAGE_STATUS_REQ:
-        INFO("STATUS_REQ");
-        break;
-     case GAMESERVER_STAGE_STATUS_RSP:
-        INFO("STATUS_RSP");
-        break;
-     default:
-        INFO("UNKNOWN");
-        break;
-     }
- }
-
- static inline void dbg_print_client_stage(enum client_stage stage)
- {
-     switch (stage) {
-     case CLIENT_STAGE_SECURE_REQ:
-        INFO("SECURE_REQ");
-        break;
-     case CLIENT_STAGE_SECURE_RSP:
-        INFO("SECURE_RSP");
-        break;
-     case CLIENT_STAGE_SERVER_LIST_REQ:
-        INFO("SERVER_LIST_REQ");
-        break;
-     case CLIENT_STAGE_SERVER_LIST_RSP:
-        INFO("SERVER_LIST_RSP");
-        break;
-     default:
-        INFO("UNKNOWN");
-        break;
-     }
- }
-
  static inline uint8_t* pkt_put_key_value(struct pkt_key *pkt_key, uint8_t key, char *val, uint8_t *pkt)
  {
      uint8_t *curr_pkt = pkt;
