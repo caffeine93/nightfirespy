@@ -31,6 +31,7 @@ struct ClientNF {
     in_addr_t ip;
     int sock;
     char secure_key_challenge[SECURE_KEY_CHALLENGE_SZ + 1];
+    uint8_t compact_list;
     enum client_stage conn_stage;
     STAILQ_ENTRY(ClientNF) entry;
 };

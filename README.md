@@ -99,8 +99,10 @@ flow from establishing to closing. Indeed, the simple description of this would 
 3. Client uses the challenge in the master's packet to generate a response which looks like
    '\gamename\jbnightfire\gamever\1\location\0\validate\203q7t2w\enctype\2\final\\queryid\1.1\
 4. Client issues a packet demanding a server list which looks like:
-   '\list\cmp\gamename\jbnightfire\final\'
-5. Master responds with encrypted IP:port pairs sent back
+   '\list\\gamename\jbnightfire\final\' for a standard list request or
+   '\list\cmp\gamename\jbnightfire\final\' for a compact list request
+5. Master responds with encrypted list of PORT:IP combinations depending on the type of
+   the server list requested
 6. Connection is closed
 
 The strings in the packets indeed resemble the query strings, but the big different is that

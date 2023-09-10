@@ -58,6 +58,7 @@
  #define NIGHTFIRE_GAMEKEY "S9j3L2"
  #define NIGHTFIRE_ENCTYPE_VER 2
 
+ #define CLIENT_COMPACT_LIST "cmp"
 
  #define GAMESERVER_HEARTBEAT_INTERVAL 300 /* 5min */
  #define GAMESERVER_HEARTBEAT_INTERVAL_MARGIN 10 /* 10s */
@@ -186,6 +187,19 @@
      {CLIENT_LIST_PKT_LIST, "list"},
      {CLIENT_LIST_PKT_GAMENAME, "gamename"},
      {CLIENT_LIST_PKT_FINAL, "final"},
+     {PKT_INVALID_KEY, ""}
+ };
+
+ /* master -> client */
+ enum server_list {
+     CLIENT_SERVER_LIST_RSP_PKT_IP,
+     CLIENT_SERVER_LIST_RSP_PKT_FINAL,
+     CLIENT_SERVER_LIST_RSP_PKT_MAX
+ };
+
+ static struct pkt_key pkt_client_server_list_rsp_keys[] = {
+     {CLIENT_SERVER_LIST_RSP_PKT_IP, "ip"},
+     {CLIENT_SERVER_LIST_RSP_PKT_FINAL, "final"},
      {PKT_INVALID_KEY, ""}
  };
 
@@ -766,7 +780,11 @@ out:
         return CLIENT_STAGE_INVALID;
      }
 
-     /* TODO: cmp list send? need to investigate more, ignore param for now */
+     if (!strncmp(str_val, CLIENT_COMPACT_LIST, strlen(CLIENT_COMPACT_LIST)))
+        client->compact_list = 1;
+     else
+        client->compact_list = 0;
+
      free(str_val);
 
      str_val = pkt_get_value(pkt_client_list_keys, CLIENT_LIST_PKT_GAMENAME, pkt);
@@ -799,44 +817,67 @@ out:
  static enum client_stage client_send_server_list_rsp(struct MasterServerNF *master, struct ClientNF *client)
  {
      uint8_t pkt[MAX_PKT_SZ] = {'\0'};
-     char ip_addr_str[INET_ADDRSTRLEN];
-     char port_str[10];
-     uint16_t pkt_free_space = MAX_PKT_SZ - 1;
+     uint8_t *pkt_bldr = pkt;
+     char ip_port_addr_str[INET_ADDRSTRLEN + 10];
      uint16_t encrypted_pkt_sz = 0;
      struct GameServerNF *gameserver = NULL;
+     uint16_t n_servers_list = 0;
+     uint16_t net_port = 0;
 
      pthread_mutex_lock(&master->lock_gameservers);
      STAILQ_FOREACH(gameserver, &master->gameservers, entry) {
          if (!gameserver->valid)
             continue;
 
-         if (!inet_ntop(AF_INET, &gameserver->ip, ip_addr_str, INET_ADDRSTRLEN))
-            continue;
+         if (client->compact_list) {
+            /* compact list is a binary list format in which each entry is
+             * 6bytes long and looks like [IP   PORT]
+             *                            [4b     2b] */
 
-         snprintf(port_str, sizeof(port_str), "%u", gameserver->port);
+            /* we keep port in host order locally but it needs to be sent in network order
+             * to the client */
+            net_port = htons(gameserver->port);
+            if ((pkt_bldr - pkt + sizeof(gameserver->ip) + sizeof(net_port)) > sizeof(pkt))
+                break;
 
-         if (strlen(ip_addr_str) + 1 + strlen(port_str) + 1 > pkt_free_space)
-            break;
+            memcpy(pkt_bldr, &gameserver->ip, sizeof(gameserver->ip));
+            pkt_bldr += sizeof(gameserver->ip);
+            memcpy(pkt_bldr, &net_port, sizeof(net_port));
+            pkt_bldr += sizeof(net_port);
+         }
+         else {
+            /* standard list is an ASCII represented list in which each entry
+             * looks like ["\ip\IP:PORT"] */
+            if (!inet_ntop(AF_INET, &gameserver->ip, ip_port_addr_str, INET_ADDRSTRLEN))
+               continue;
 
-         strncat(pkt, "\\", pkt_free_space);
-         pkt_free_space--;
-         strncat(pkt, ip_addr_str, pkt_free_space);
-         pkt_free_space -= strlen(ip_addr_str);
-         strncat(pkt, ":", pkt_free_space);
-         pkt_free_space--;
-         strncat(pkt, port_str, pkt_free_space);
-         pkt_free_space -= strlen(port_str);
+            strncat(ip_port_addr_str, ":", sizeof(ip_port_addr_str) - strlen(ip_port_addr_str));
+            snprintf(ip_port_addr_str + strlen(ip_port_addr_str), sizeof(ip_port_addr_str) - strlen(ip_port_addr_str), "%u", gameserver->port);
+
+            if ((strlen(ip_port_addr_str) + 1) > (sizeof(pkt) - (pkt - pkt_bldr)))
+               break;
+
+            pkt_bldr = pkt_put_key_value(pkt_client_server_list_rsp_keys, CLIENT_SERVER_LIST_RSP_PKT_IP, ip_port_addr_str, pkt_bldr);
+            if (!pkt_bldr)
+               return CLIENT_STAGE_INVALID;
+         }
+
+         n_servers_list++;
      }
      pthread_mutex_unlock(&master->lock_gameservers);
 
-     /* empty list only contains delimiters, TODO: check */
-     if (!strlen(pkt))
-        strncat(pkt, "\\\\", pkt_free_space);
+     pkt_bldr = pkt_put_key_value(pkt_client_server_list_rsp_keys, CLIENT_SERVER_LIST_RSP_PKT_FINAL, "", pkt_bldr);
+     if (!pkt_bldr)
+        return CLIENT_STAGE_INVALID;
+
+     print_ip(client->ip, ip_port_addr_str, sizeof(ip_port_addr_str));
+
+     if (!client->compact_list)
+        CLIENT_INFO("[%s] List: prepared list to send to client, raw: {%s}\n", ip_port_addr_str, pkt);
 
      encrypted_pkt_sz = enctype2_encoder(NIGHTFIRE_GAMEKEY, pkt, strlen(pkt) + 1);
      send(client->sock, pkt, encrypted_pkt_sz, 0);
-     print_ip(client->ip, ip_addr_str, sizeof(ip_addr_str));
-     CLIENT_INFO("[%s] List: sent server list rsp to client\n", ip_addr_str);
+     CLIENT_INFO("[%s] List: sent server list of %u hosts rsp to client\n", ip_port_addr_str, n_servers_list);
 
      /* this is the final stage and client can be invalidated now, this will in turn
       * close the connection and free the client resources in the handler thread */
