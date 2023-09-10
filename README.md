@@ -102,7 +102,7 @@ flow from establishing to closing. Indeed, the simple description of this would 
    '\list\\gamename\jbnightfire\final\' for a standard list request or
    '\list\cmp\gamename\jbnightfire\final\' for a compact list request
 5. Master responds with encrypted list of PORT:IP combinations depending on the type of
-   the server list requested (see #server-list-type)
+   the server list requested (see [a chapter on server list types](#server-list-type))
 6. Connection is closed
 
 The strings in the packets indeed resemble the query strings, but the big different is that
