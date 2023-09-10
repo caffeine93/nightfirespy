@@ -1,11 +1,11 @@
-# NightfireSpy: open-source implementation of GameSpy's 'James Bond: Nightfire' master server
+# NightfireSpy: open-source implementation of GameSpy's *James Bond 007: Nightfire* master server
 
 ### *Note: this project is a work in progress, as reverse engineering is moving on, the codebase is updated, the first fully working version will be made into a 0.1 release. Check [current project status](#current-status)*
 
 ## Background
 
-'James Bond: Nightfire' is a FPS game released by EA Games in 2002. The game offers both
-singleplay and multiplayer mode. The multiplayer mode allows the player to create a gameserver
+*James Bond 007: Nightfire* is a FPS game released by EA Games in 2002. The game offers both
+singleplayer and multiplayer mode. The multiplayer mode allows the player to create a gameserver
 with preferred settings (map, CTF/DM mode, max players, password) which is displayed in the
 server list of other players who can in turn join it. This in-game server creation would later
 be augmented with community-developed dedicated server options with more advanced server
@@ -102,7 +102,7 @@ flow from establishing to closing. Indeed, the simple description of this would 
    '\list\\gamename\jbnightfire\final\' for a standard list request or
    '\list\cmp\gamename\jbnightfire\final\' for a compact list request
 5. Master responds with encrypted list of PORT:IP combinations depending on the type of
-   the server list requested
+   the server list requested (see #server-list-type)
 6. Connection is closed
 
 The strings in the packets indeed resemble the query strings, but the big different is that
@@ -116,6 +116,26 @@ server list separated by the '\' delimiter. The same gamekey is used to encrypt 
 thus the client can decrypt it and query the gameservers directly. The seckey/enctype algorithms
 were first reverse-engineered by Luigi Auriemma whose [site serves great resources regarding these
 algorithms](http://aluigi.altervista.org/papers.htm#gsmsalg).
+
+#### Server list type
+
+When discussing the details of the client protocol above, it's important to understand how
+the server list itself is serialized in order to be sent to the client.
+
+The first and most simple is the standard list type which is requested when the client sends
+the empty "\list\" parameter in the query. This server list is encoded as entries which have
+the format of *"\ip\IP1.IP1.IP1.IP1:PORT1\"*. At the end of the list comes the "\final\". This
+format is useful for applications which want to print the IP:port combinations, such as online
+server browsers, since it doesn't require conversion from raw bytes to ASCII string representations,
+the connection URL can thus be easily formed that the player can click on and join the game.
+
+The second and more complex is the compact list type which is requested when the client sends
+the "cmp" value for the "\list\" parameter. This list type was probably used both to quickly
+populate the appropriate structs for IPs (i.e. in_addr_t) and ports as well as to reduce the
+amount of traffic from the master server to the clients. The IP and port bytes are transmitted
+in network order. Each entry is encoded as *4bytes_of_ip|2bytes_of_port*. Just like the standard
+list type, this one too end with "\final\". The in-game server list browser uses this list type
+exclusively.
 
 ## System design
 
@@ -160,17 +180,17 @@ the client will start at the first stage again and the state machine cycle repea
 The master server itself is implemented as a library (nfmaster.h) with a simple API consisting of only
 three functions:
 
-- int32_t MasterSever_init(struct MasterServerNF **master): initializes the resources needed for master's
+- **int32_t MasterSever_init(struct MasterServerNF \**master)**: initializes the resources needed for master's
   operation such as mutexes, lists and sockets. Returns zero on success, error code on failure. The handle
   argument will be initialized and populated on success and needs to be passed as argument to all future
   API calls.
 
-- int32_t MasterServer_start(struct MasterServerNF *master): starts the needed threads and begins accepting
+- **int32_t MasterServer_start(struct MasterServerNF *master)**: starts the needed threads and begins accepting
   TCP client connection to be assigned to handler threads in the pool. This function is blocking and, as
   long as the server is running without faults, should never return. On returning, an error code would
   specify the reason why.
 
-- void MasterServer_free(struct MasterServerNF *master): this function performs a cleanup of all the
+- **void MasterServer_free(struct MasterServerNF *master)**: this function performs a cleanup of all the
   resources used by the master, issues stop condition to the running threads and joins them, closes
   all the opened sockets, etc. This function should be called after MasterServer_start() exit control
   flow to ensure clean exit. Another good pattern is to call it from a signal handler, thus the application
@@ -183,7 +203,7 @@ infrastructure has been written which:
 
 - opens appropriate sockets for TCP and UDP communication of client and gameserver protocols
 
-- client handler has been written for all connection stages
+- client handler has been written for all connection stages supporting both server list types
 
 - ported aluigi's seckey/enctype algorithm implementation
 
@@ -199,4 +219,6 @@ infrastructure has been written which:
 
 - heartbeat and status processing verified by running a real Nightfire game server
 - verified that the server is removed from the list after it's closed
+- verified that the server list is correctly returned by testing with the original
+  game executable and its in-game server list browser
 
