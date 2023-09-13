@@ -550,7 +550,7 @@ out:
      else if (!strncmp(packet, GAMESERVER_PKTHDR_STATUS_RSP, strlen(GAMESERVER_PKTHDR_STATUS_RSP)))
         return process_status(master, addr, packet, size);
      else {
-        INFO("Received invalid packet type on UDP sock\n");
+        INFO("Received invalid packet type on gameserver port\n");
         return -EINVAL;
      }
 
@@ -807,7 +807,8 @@ out:
          ret = CLIENT_STAGE_INVALID;
      }
 
-     CLIENT_INFO("[%s] List: processed server list req\n", ip_addr_str);
+     CLIENT_INFO("[%s] List: processed server list req, list type: %s\n",
+                 ip_addr_str, (client->compact_list) ? "compact" : "standard");
      free(str_val);
 
 out:
@@ -875,9 +876,9 @@ out:
      if (!client->compact_list)
         CLIENT_INFO("[%s] List: prepared list to send to client, raw: {%s}\n", ip_port_addr_str, pkt);
 
-     encrypted_pkt_sz = enctype2_encoder(NIGHTFIRE_GAMEKEY, pkt, strlen(pkt) + 1);
+     encrypted_pkt_sz = enctype2_encoder(NIGHTFIRE_GAMEKEY, pkt, pkt_bldr - pkt + 1);
      send(client->sock, pkt, encrypted_pkt_sz, 0);
-     CLIENT_INFO("[%s] List: sent server list of %u hosts rsp to client\n", ip_port_addr_str, n_servers_list);
+     CLIENT_INFO("[%s] List: sent server list rsp of %u hosts to client\n", ip_port_addr_str, n_servers_list);
 
      /* this is the final stage and client can be invalidated now, this will in turn
       * close the connection and free the client resources in the handler thread */
