@@ -26,12 +26,12 @@ were suddenly unable to get any servers listed. The only available option was to
 enter the IP:port value of a known gameserver host.
 
 The aim of this project is to learn more about the GameSpy's master server implementation,
-specifically for 'James Bond: Nightfire', offer anyone the ability to host one, but also
+specifically for *James Bond 007: Nightfire*, offer anyone the ability to host one, but also
 to allow other GameSpy-dependent games to fork and implement their own variants.
 
 ## Protocol details & reverse-engineering
 
-'James Bond: Nightfire' is developed on the GoldSrc engine, which in turn is based on
+*James Bond 007: Nightfire* is developed on the GoldSrc engine, which in turn is based on
 Quake3 engine. This is useful since Quake3 was open-sourced but GoldSrc remains close
 sourced and thus some information about the protocols that's shared between the two
 can be inferred. The rest is reverse-engineered through Wireshark capture dumps back

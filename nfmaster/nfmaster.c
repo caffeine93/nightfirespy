@@ -36,6 +36,8 @@
  #define SERVERLIST_CLEANUP_PERIOD_SEC 5 /* 5sec */
  #define CLIENT_TCP_CONN_TIMEOUT_MS 10000 /* 10sec */
 
+ #define ACCEPT_PRIVATE_GAMESERVER_IP 1
+
  #define LOGGING_TYPE_PRINTF
 
  #ifdef LOGGING_TYPE_PRINTF
@@ -283,6 +285,24 @@
      }
 
      return NULL;
+ }
+
+ static inline uint8_t is_ip_private(in_addr_t ip)
+ {
+     /* IP bytes are in network order */
+     uint8_t *ip_bytes = (uint8_t *)&ip;
+
+     /* Private IP ranges
+      * -----------------
+      * Class A: 10.0.0.0-10.255.255.255
+      * Class B: 172.16.0.0-172.31.255.255
+      * Class C: 192.168.0.0-192.168.255.255
+      */
+     if ((ip_bytes[0] == 10) || (ip_bytes[0] == 172 && ip_bytes[1] >= 16 && ip_bytes[1] <= 31) ||
+         (ip_bytes[0] == 192 && ip_bytes[1] == 168))
+        return 1;
+     else
+        return 0;
  }
 
  static inline const char *print_ip(in_addr_t ip_addr, char *ip_addr_str, uint32_t sz)
@@ -544,6 +564,11 @@ out:
         return -EINVAL;
      if (!size)
         return 0;
+
+     if (!ACCEPT_PRIVATE_GAMESERVER_IP && is_ip_private(addr->sin_addr.s_addr)) {
+        INFO("Received a packet from private IP on gameserver port, ignoring...\n");
+        return 0;
+     }
 
      if (!strncmp(packet, GAMESERVER_PKTHDR_HEARTBEAT, strlen(GAMESERVER_PKTHDR_HEARTBEAT)))
         return process_heartbeat(master, addr, packet, size);
