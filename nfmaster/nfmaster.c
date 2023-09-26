@@ -702,7 +702,7 @@ out:
      srand((unsigned) time(&time_seed));
 
      for (uint8_t i = 0; i < SECURE_KEY_CHALLENGE_SZ; i++)
-            client->secure_key_challenge[i] = rand() % 0xff;
+            client->secure_key_challenge[i] = (rand() / (RAND_MAX / ('Z' - 'A' + 1) + 1)) + 'A';
 
      client->secure_key_challenge[SECURE_KEY_CHALLENGE_SZ] = '\0';
 
